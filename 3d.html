@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<style>*{margin:0;padding:0}body{overflow:hidden;background:#0a0e17}canvas{display:block}</style>
+</head><body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+var ROOM,BOARDS,OPS,CAM_TYPES,cams=[];
+var scene,camera,renderer,controls,camMeshes={};
+
+// 부모 페이지에서 데이터 수신
+window.addEventListener('message',function(e){
+  var d=e.data;
+  if(d.type==='init'){
+    ROOM=d.ROOM;BOARDS=d.BOARDS;OPS=d.OPS;CAM_TYPES=d.CAM_TYPES;
+    cams=d.cams||[];
+    initScene();
+  }else if(d.type==='update'){
+    cams=d.cams;CAM_TYPES=d.CAM_TYPES;
+    updateCams();
+  }
+});
+
+function initScene(){
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x0a0e17);
+
+  camera=new THREE.PerspectiveCamera(50,window.innerWidth/window.innerHeight,.1,100);
+  camera.position.set(ROOM.W/2,14,22);
+  camera.lookAt(ROOM.W/2,0,ROOM.H/2);
+
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  controls=new THREE.OrbitControls(camera,renderer.domElement);
+  controls.target.set(ROOM.W/2,1.5,ROOM.H/2);
+  controls.enableDamping=true;
+  controls.dampingFactor=0.08;
+
+  // 조명
+  scene.add(new THREE.AmbientLight(0x7799bb,.6));
+  var dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(ROOM.W/2,16,ROOM.H/2);scene.add(dl);
+  scene.add(new THREE.HemisphereLight(0x334466,0x111827,.5));
+
+  // 바닥
+  var fl=new THREE.Mesh(new THREE.PlaneGeometry(ROOM.W,ROOM.H),new THREE.MeshLambertMaterial({color:0x1a2234,side:THREE.DoubleSide}));
+  fl.rotation.x=-Math.PI/2;fl.position.set(ROOM.W/2,0,ROOM.H/2);scene.add(fl);
+  var grid=new THREE.GridHelper(20,24,0x2a3a52,0x1e293b);
+  grid.position.set(ROOM.W/2,.01,ROOM.H/2);scene.add(grid);
+
+  // 벽
+  var wm=new THREE.MeshLambertMaterial({color:0x2d3748,transparent:true,opacity:.15,side:THREE.DoubleSide});
+  [[ROOM.W/2,ROOM.CEIL/2,0,[0,0,0],[ROOM.W,ROOM.CEIL]],
+   [ROOM.W/2,ROOM.CEIL/2,ROOM.H,[0,Math.PI,0],[ROOM.W,ROOM.CEIL]],
+   [0,ROOM.CEIL/2,ROOM.H/2,[0,Math.PI/2,0],[ROOM.H,ROOM.CEIL]],
+   [ROOM.W,ROOM.CEIL/2,ROOM.H/2,[0,-Math.PI/2,0],[ROOM.H,ROOM.CEIL]]
+  ].forEach(function(d){var m=new THREE.Mesh(new THREE.PlaneGeometry(d[4][0],d[4][1]),wm);m.position.set(d[0],d[1],d[2]);m.rotation.set(d[3][0],d[3][1],d[3][2]);scene.add(m)});
+
+  // 가구
+  BOARDS.forEach(function(b){
+    if(b.t!=='rect')return;
+    var h=b.cat==='board'?1.7:.75;
+    var mat=new THREE.MeshLambertMaterial({color:b.cat==='board'?0x1a2e42:0x1e2a3a});
+    var geo=new THREE.BoxGeometry(b.w,h,b.h);
+    var mesh=new THREE.Mesh(geo,mat);mesh.position.set(b.x+b.w/2,h/2,b.y+b.h/2);scene.add(mesh);
+    var edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:0x2d4a6a}));
+    edge.position.copy(mesh.position);scene.add(edge);
+  });
+
+  // 운전원
+  OPS.forEach(function(o){
+    var mat=new THREE.MeshLambertMaterial({color:new THREE.Color(o.col)});
+    var body=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,1.7,8),mat);body.position.set(o.x,.85,o.y);scene.add(body);
+    var head=new THREE.Mesh(new THREE.SphereGeometry(.15,8,8),mat);head.position.set(o.x,1.85,o.y);scene.add(head);
+  });
+
+  updateCams();
+
+  window.addEventListener('resize',function(){
+    camera.aspect=window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth,window.innerHeight);
+  });
+
+  renderer.setAnimationLoop(function(){
+    controls.update();
+    renderer.render(scene,camera);
+  });
+}
+
+function updateCams(){
+  if(!scene)return;
+  for(var id in camMeshes){camMeshes[id].forEach(function(o){scene.remove(o)});delete camMeshes[id]}
+  camMeshes={};
+  for(var i=0;i<cams.length;i++){
+    var c=cams[i],objs=[],col=new THREE.Color(CAM_TYPES[c.type].col);
+    var body=new THREE.Mesh(new THREE.BoxGeometry(.25,.2,.3),new THREE.MeshLambertMaterial({color:col}));
+    body.position.set(c.x,c.height,c.y);scene.add(body);objs.push(body);
+    var eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*.65):c.range;
+    var coneGeo=new THREE.ConeGeometry(Math.tan(c.fov*Math.PI/360)*eff,eff,12,1,true);
+    var cone=new THREE.Mesh(coneGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.08,side:THREE.DoubleSide}));
+    cone.position.set(c.x,c.height,c.y);
+    cone.rotation.set(0,0,Math.PI/2);cone.rotation.order='YXZ';
+    cone.rotateOnWorldAxis(new THREE.Vector3(0,1,0),-c.angle*Math.PI/180+Math.PI/2);
+    cone.translateY(eff/2);
+    scene.add(cone);objs.push(cone);
+    var wire=new THREE.Mesh(new THREE.CylinderGeometry(.02,.02,ROOM.CEIL-c.height),new THREE.MeshBasicMaterial({color:0x475569}));
+    wire.position.set(c.x,(c.height+ROOM.CEIL)/2,c.y);scene.add(wire);objs.push(wire);
+    camMeshes[c.id]=objs;
+  }
+}
+</script>
+</body></html>
