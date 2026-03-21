@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CCTV 배치 시뮬레이터</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1420;color:#e2e8f0;height:100vh;overflow:hidden;display:flex}
+
+.side{width:260px;min-width:260px;background:#161d2e;border-right:1px solid #2a3550;display:flex;flex-direction:column;overflow-y:auto}
+.side::-webkit-scrollbar{width:4px}.side::-webkit-scrollbar-thumb{background:#2a3550;border-radius:2px}
+.logo{padding:12px 14px;border-bottom:1px solid #2a3550;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+.sec{padding:10px 14px;border-bottom:1px solid #1e2940}
+.sec-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#64748b;margin-bottom:8px}
+.score-big{font-size:32px;font-weight:800;text-align:center;padding:4px 0;letter-spacing:-1px}
+.score-row{display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;padding:2px 0}
+.score-row .val{font-weight:600;color:#e2e8f0}
+.bar-wrap{height:3px;background:#1e293b;border-radius:2px;margin-top:2px;overflow:hidden}
+.bar-fill{height:100%;border-radius:2px;transition:width .3s}
+.cam-item{display:flex;align-items:center;gap:6px;padding:6px 8px;background:#1a2236;border:1px solid #2a3550;border-radius:5px;margin-bottom:3px;cursor:pointer;transition:border-color .15s;font-size:10px}
+.cam-item:hover,.cam-item.sel{border-color:#3b82f6}
+.cam-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.cam-info{flex:1}.cam-info small{color:#64748b;font-size:9px}
+.cam-del{background:none;border:none;color:#475569;cursor:pointer;font-size:13px;padding:2px}.cam-del:hover{color:#ef4444}
+.ctrl-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.ctrl-row label{font-size:9px;color:#94a3b8;width:36px;flex-shrink:0}
+.ctrl-row input[type=range]{flex:1;height:3px;-webkit-appearance:none;background:#2a3550;border-radius:2px;outline:none}
+.ctrl-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;background:#3b82f6;border-radius:50%;cursor:pointer}
+.ctrl-row .val{font-size:9px;color:#e2e8f0;width:36px;text-align:right}
+.btn{width:100%;padding:7px;border:none;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;transition:opacity .15s;font-family:inherit}
+.btn:hover{opacity:.85}
+.btn-primary{background:#3b82f6;color:#fff}
+.btn-outline{background:transparent;border:1px dashed #2a3550;color:#94a3b8;margin-top:3px}
+.btn-outline:hover{border-color:#3b82f6;color:#3b82f6}
+.op-row{display:flex;align-items:center;gap:5px;font-size:10px;padding:2px 0}
+.op-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.op-name{width:32px;font-weight:600}
+.op-status{flex:1;text-align:right;font-size:9px}
+
+/* 메인 영역 */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.view-tabs{display:flex;background:#161d2e;border-bottom:1px solid #2a3550;padding:0 8px;flex-shrink:0}
+.vtab{padding:7px 14px;font-size:10px;cursor:pointer;border-bottom:2px solid transparent;color:#64748b;transition:all .15s;font-family:inherit;background:none;border-top:none;border-left:none;border-right:none}
+.vtab.on{color:#3b82f6;border-bottom-color:#3b82f6}
+.view-area{flex:1;display:flex;position:relative;overflow:hidden}
+.pane-2d{position:relative;overflow:hidden}
+.pane-3d{position:relative;overflow:hidden;border-left:1px solid #2a3550}
+.pane-2d canvas,.pane-3d canvas{display:block;width:100%;height:100%}
+.hint{position:absolute;bottom:8px;left:8px;font-size:9px;color:#475569;pointer-events:none}
+.toggle-bar{position:absolute;top:8px;left:8px;display:flex;gap:3px;z-index:5}
+.tog{padding:3px 8px;background:rgba(15,20,32,.9);border:1px solid #2a3550;color:#64748b;border-radius:10px;cursor:pointer;font-size:9px;font-family:inherit;transition:all .15s}
+.tog.on{border-color:#3b82f6;color:#3b82f6}
+.cbtn{padding:4px 10px;background:transparent;border:1px solid #2a3550;color:#94a3b8;border-radius:4px;cursor:pointer;font-size:10px;font-family:inherit;transition:all .15s}
+.cbtn:hover{border-color:#3b82f6;color:#3b82f6}
+.cbtn.on{background:#3b82f6;border-color:#3b82f6;color:#fff}
+</style>
+</head>
+<body>
+
+<div class="side">
+  <div class="logo">📹 CCTV 배치 시뮬레이터</div>
+  <div class="sec">
+    <div class="sec-title">커버리지</div>
+    <div class="score-big" id="totalScore">0%</div>
+    <div class="score-row"><span>운전원 포착</span><span class="val" id="sOp">0%</span></div>
+    <div class="bar-wrap"><div class="bar-fill" id="bOp" style="width:0;background:#06b6d4"></div></div>
+    <div class="score-row" style="margin-top:4px"><span>공간 커버리지</span><span class="val" id="sGrid">0%</span></div>
+    <div class="bar-wrap"><div class="bar-fill" id="bGrid" style="width:0;background:#3b82f6"></div></div>
+    <div class="score-row" style="margin-top:4px"><span>제스처 감지</span><span class="val" id="sFace">0%</span></div>
+    <div class="bar-wrap"><div class="bar-fill" id="bFace" style="width:0;background:#10b981"></div></div>
+  </div>
+  <div class="sec">
+    <div class="sec-title">운전원</div>
+    <div id="opList"></div>
+  </div>
+  <div class="sec">
+    <div class="sec-title">카메라 (<span id="camCount">0</span>)</div>
+    <div id="camList"></div>
+    <button class="btn btn-outline" onclick="addCam()">+ 카메라 추가</button>
+  </div>
+  <div class="sec" id="ctrlSec" style="display:none">
+    <div class="sec-title">카메라 설정</div>
+    <div class="ctrl-row"><label>방향</label><input type="range" min="0" max="359" id="rAngle" oninput="setProp('angle',+this.value)"><span class="val" id="vAngle">0°</span></div>
+    <div class="ctrl-row"><label>화각</label><input type="range" min="30" max="220" id="rFov" oninput="setProp('fov',+this.value)"><span class="val" id="vFov">90°</span></div>
+    <div class="ctrl-row"><label>높이</label><input type="range" min="20" max="40" id="rHeight" oninput="setProp('height',this.value/10)"><span class="val" id="vHeight">3.0m</span></div>
+    <div class="ctrl-row"><label>거리</label><input type="range" min="20" max="130" id="rRange" oninput="setProp('range',this.value/10)"><span class="val" id="vRange">8.0m</span></div>
+  </div>
+  <div class="sec">
+    <div class="sec-title">자동 배치</div>
+    <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap" id="camNumBtns">
+      <button class="cbtn on" onclick="setCamNum(4)">4대</button>
+      <button class="cbtn" onclick="setCamNum(5)">5대</button>
+      <button class="cbtn" onclick="setCamNum(6)">6대</button>
+      <button class="cbtn" onclick="setCamNum(7)">7대</button>
+      <button class="cbtn" onclick="setCamNum(8)">8대</button>
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap" id="camTypeBtns">
+      <button class="cbtn on" data-t="mix" onclick="setCamType('mix')">혼합</button>
+      <button class="cbtn" data-t="fisheye" onclick="setCamType('fisheye')">어안만</button>
+      <button class="cbtn" data-t="fixed" onclick="setCamType('fixed')">고정만</button>
+    </div>
+    <button class="btn btn-primary" onclick="autoPlace()">최적 위치 자동 배치</button>
+    <div id="optStatus" style="font-size:9px;color:#64748b;margin-top:4px;text-align:center"></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="view-tabs">
+    <button class="vtab on" id="tabSplit" onclick="setView('split')">2D + 3D</button>
+    <button class="vtab" id="tab2d" onclick="setView('2d')">2D</button>
+    <button class="vtab" id="tab3d" onclick="setView('3d')">3D</button>
+  </div>
+  <div class="view-area" id="viewArea">
+    <div class="pane-2d" id="pane2d">
+      <canvas id="cv"></canvas>
+      <div class="toggle-bar">
+        <button class="tog on" id="togHeat" onclick="toggleVis('heat')">히트맵</button>
+        <button class="tog on" id="togDead" onclick="toggleVis('dead')">사각지대</button>
+        <button class="tog" id="togOps" onclick="toggleVis('ops')">동선</button>
+      </div>
+      <div class="hint">더블클릭: 추가 · 드래그: 이동 · 우클릭: 방향</div>
+    </div>
+    <div class="pane-3d" id="pane3d">
+      <canvas id="cv3d"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- 2D 로직 -->
+<script>
+var ROOM={W:9,H:13,CEIL:4};
+var BOARDS=[
+  {t:'rect',x:1.6,y:0.1,w:5.8,h:1.4,label:'전면 보드',cat:'board'},
+  {t:'rect',x:0,y:0.1,w:1.6,h:2.0,label:'좌측 꺾임',cat:'board'},
+  {t:'rect',x:7.4,y:0.1,w:1.6,h:2.0,label:'우측 꺾임',cat:'board'},
+  {t:'rect',x:0,y:0.1,w:0.55,h:12.9,label:'좌벽',cat:'board'},
+  {t:'rect',x:8.45,y:0.1,w:0.55,h:12.9,label:'우벽',cat:'board'},
+  {t:'rect',x:1.8,y:3.8,w:5.4,h:0.7,label:'전면 콘솔',cat:'desk'},
+  {t:'rect',x:1.5,y:4.5,w:2.0,h:3.0,label:'좌측 운전석',cat:'desk'},
+  {t:'rect',x:5.5,y:4.5,w:2.0,h:3.0,label:'우측 운전석',cat:'desk'},
+  {t:'rect',x:3.5,y:4.5,w:2.0,h:1.5,label:'중앙 콘솔',cat:'desk'},
+  {t:'rect',x:2.0,y:8.2,w:5.0,h:0.6,label:'후면 콘솔',cat:'desk'},
+  {t:'rect',x:2.0,y:9.0,w:2.0,h:1.4,label:'STA 데스크',cat:'desk'},
+  {t:'rect',x:5.0,y:9.0,w:2.0,h:1.4,label:'SS 데스크',cat:'desk'}
+];
+var OPS=[
+  {id:'RO',lbl:'원자로',x:2.5,y:5.5,col:'#3b82f6',path:[[2.5,5.5],[1.2,3.5],[2.0,1.5],[4.0,1.2]]},
+  {id:'TO',lbl:'터빈',x:2.5,y:6.8,col:'#8b5cf6',path:[[2.5,6.8],[1.2,5.5],[0.7,4.0],[2.0,2.0]]},
+  {id:'EO',lbl:'전기',x:6.5,y:5.5,col:'#06b6d4',path:[[6.5,5.5],[7.8,3.5],[8.5,2.0],[6.5,1.5]]},
+  {id:'FM',lbl:'기계',x:6.5,y:6.8,col:'#ec4899',path:[[6.5,6.8],[8.0,5.5],[8.5,3.5],[7.0,1.5]]},
+  {id:'STA',lbl:'기술',x:3.0,y:9.8,col:'#f59e0b',path:[[3.0,9.8],[2.0,8.0],[3.5,6.0],[4.5,5.0]]},
+  {id:'SS',lbl:'발전부장',x:6.0,y:9.8,col:'#10b981',path:[[6.0,9.8],[5.0,9.0],[5.5,8.2]]}
+];
+var cams=[],nextId=1,selId=null,vis={heat:true,dead:true,ops:false},drag=null,hcache=null;
+var curView='split';
+var CAM_TYPES={fisheye:{lbl:'어안',col:'#06b6d4'},fixed:{lbl:'고정',col:'#3b82f6'},ptz:{lbl:'PTZ',col:'#8b5cf6'}};
+
+function walkable(x,y){
+  for(var i=0;i<BOARDS.length;i++){
+    var b=BOARDS[i];
+    if(b.t==='rect'){if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h)return false}
+    else if(b.t==='poly'){var inside=false,pts=b.pts,n=pts.length;for(var j=0,k=n-1;j<n;k=j++){if((pts[j][1]>y)!==(pts[k][1]>y)&&x<(pts[k][0]-pts[j][0])*(y-pts[j][1])/(pts[k][1]-pts[j][1])+pts[j][0])inside=!inside}if(inside)return false}
+  }
+  return x>=0&&x<=ROOM.W&&y>=0&&y<=ROOM.H;
+}
+function covAt(px,py,arr){
+  arr=arr||cams;var maxPPF=0;
+  for(var i=0;i<arr.length;i++){
+    var c=arr[i],dx=px-c.x,dy=py-c.y,gd=Math.sqrt(dx*dx+dy*dy),td=Math.sqrt(gd*gd+c.height*c.height);
+    var eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*0.65):c.range;
+    if(gd>eff)continue;
+    var ad=Math.atan2(dy,dx)*180/Math.PI-c.angle;while(ad>180)ad-=360;while(ad<-180)ad+=360;
+    if(Math.abs(ad)>c.fov/2)continue;
+    var dd=Math.atan2(c.height,gd)*180/Math.PI;
+    var dF=(dd>=18&&dd<=57)?1:(dd>57?Math.max(.2,1-(dd-57)/50):Math.max(.05,dd/18));
+    var fF=Math.cos(ad*Math.PI/180*.75);
+    var ppf=(c.res*1200)/(td*td*.18+1)*dF*fF;if(ppf>maxPPF)maxPPF=ppf;
+  }
+  return maxPPF;
+}
+function evaluate(arr){
+  arr=arr||cams;if(arr.length===0)return{op:0,grid:0,face:0,total:0,opDetail:[]};
+  var opDetail=[],opSum=0;
+  for(var i=0;i<OPS.length;i++){
+    var o=OPS[i],ppf=covAt(o.x,o.y,arr);
+    var s=ppf>=55?1:ppf>=18?.5+.5*(ppf-18)/37:ppf>0?.1:0;
+    if(o.path){var ps=0;for(var j=0;j<o.path.length;j++){var pp=covAt(o.path[j][0],o.path[j][1],arr);ps+=pp>=18?1:pp>0?.2:0}s=s*.6+(ps/o.path.length)*.4}
+    opDetail.push({id:o.id,ppf:ppf,score:s,face:ppf>=55,gest:ppf>=18});opSum+=s;
+  }
+  var op=opSum/OPS.length,tot=0,gestN=0,faceN=0;
+  for(var x=.25;x<ROOM.W;x+=.5)for(var y=.25;y<ROOM.H;y+=.5){if(!walkable(x,y))continue;tot++;var p=covAt(x,y,arr);if(p>=18)gestN++;if(p>=55)faceN++}
+  var grid=tot>0?gestN/tot:0,face=tot>0?faceN/tot:0;
+  return{op:op,grid:grid,face:face,total:op*.5+grid*.4+face*.1,opDetail:opDetail};
+}
+function updateUI(){
+  var r=evaluate(),pct=function(v){return Math.round(v*100)+'%'},col=function(v){return v>=.85?'#10b981':v>=.6?'#f59e0b':'#ef4444'};
+  document.getElementById('totalScore').textContent=pct(r.total);document.getElementById('totalScore').style.color=col(r.total);
+  document.getElementById('sOp').textContent=pct(r.op);document.getElementById('bOp').style.width=pct(r.op);
+  document.getElementById('sGrid').textContent=pct(r.grid);document.getElementById('bGrid').style.width=pct(r.grid);
+  document.getElementById('sFace').textContent=pct(r.face);document.getElementById('bFace').style.width=pct(r.face);
+  var opH='';for(var i=0;i<r.opDetail.length;i++){var d=r.opDetail[i],o=OPS[i];var st=d.gest?'✅ 제스처 감지':'❌ 미포착';var sc=d.gest?'#10b981':'#ef4444';opH+='<div class="op-row"><div class="op-dot" style="background:'+o.col+'"></div><span class="op-name" style="color:'+o.col+'">'+o.id+'</span><span class="op-status" style="color:'+sc+'">'+st+' '+Math.round(d.ppf)+'PPF</span></div>'}
+  document.getElementById('opList').innerHTML=opH;
+  document.getElementById('camCount').textContent=cams.length;
+  var cH='';for(var i=0;i<cams.length;i++){var c=cams[i],t=CAM_TYPES[c.type];cH+='<div class="cam-item'+(c.id===selId?' sel':'')+'" onclick="selCam('+c.id+')"><div class="cam-dot" style="background:'+t.col+'"></div><div class="cam-info">'+t.lbl+' #'+c.id+'<br><small>('+c.x.toFixed(1)+','+c.y.toFixed(1)+') h='+c.height.toFixed(1)+'m</small></div><button class="cam-del" onclick="event.stopPropagation();delCam('+c.id+')">✕</button></div>'}
+  document.getElementById('camList').innerHTML=cH;updateCtrl();
+}
+function selCam(id){selId=id;hcache=null;updateUI();render();if(window.update3D)update3D()}
+function delCam(id){cams=cams.filter(function(c){return c.id!==id});if(selId===id)selId=cams.length>0?cams[0].id:null;hcache=null;updateUI();render();if(window.update3D)update3D()}
+function addCam(x,y,type){x=x||ROOM.W/2;y=y||ROOM.H/2;type=type||'fixed';var fov=type==='fisheye'?190:type==='ptz'?60:90;var range=type==='fisheye'?6:type==='ptz'?14:9;cams.push({id:nextId++,type:type,x:x,y:y,angle:180,height:3.8,fov:fov,range:range,res:4});selId=cams[cams.length-1].id;hcache=null;updateUI();render();if(window.update3D)update3D()}
+function getCam(id){for(var i=0;i<cams.length;i++)if(cams[i].id===id)return cams[i];return null}
+function setProp(p,v){var c=getCam(selId);if(!c)return;c[p]=v;hcache=null;updateCtrl();updateUI();render();if(window.update3D)update3D()}
+function updateCtrl(){var sec=document.getElementById('ctrlSec'),c=getCam(selId);if(!c){sec.style.display='none';return}sec.style.display='';document.getElementById('rAngle').value=Math.round(c.angle);document.getElementById('vAngle').textContent=Math.round(c.angle)+'°';document.getElementById('rFov').value=c.fov;document.getElementById('vFov').textContent=c.fov+'°';document.getElementById('rHeight').value=Math.round(c.height*10);document.getElementById('vHeight').textContent=c.height.toFixed(1)+'m';document.getElementById('rRange').value=Math.round(c.range*10);document.getElementById('vRange').textContent=c.range.toFixed(1)+'m'}
+function toggleVis(k){vis[k]=!vis[k];document.getElementById('tog'+k.charAt(0).toUpperCase()+k.slice(1)).classList.toggle('on',vis[k]);hcache=null;render()}
+
+var optCamNum=4,optCamType='mix';
+
+function setCamNum(n){
+  optCamNum=n;
+  var btns=document.getElementById('camNumBtns').children;
+  for(var i=0;i<btns.length;i++)btns[i].classList.toggle('on',parseInt(btns[i].textContent)===n);
+}
+function setCamType(t){
+  optCamType=t;
+  var btns=document.getElementById('camTypeBtns').children;
+  for(var i=0;i<btns.length;i++)btns[i].classList.toggle('on',btns[i].getAttribute('data-t')===t);
+}
+
+// 후보 위치 생성
+function genCandidates(n,typeMode){
+  // 벽/코너 우선 후보 + 운전원 상부
+  var spots=[
+    {x:.3,y:.3},{x:ROOM.W-.3,y:.3},{x:.3,y:ROOM.H-.3},{x:ROOM.W-.3,y:ROOM.H-.3}, // 코너
+    {x:ROOM.W/2,y:.3},{x:ROOM.W/2,y:ROOM.H-.3},{x:.3,y:ROOM.H/2},{x:ROOM.W-.3,y:ROOM.H/2}, // 벽 중앙
+    {x:ROOM.W/2,y:ROOM.H/2} // 중앙
+  ];
+  OPS.forEach(function(o){spots.push({x:o.x,y:o.y})});
+
+  var types;
+  if(typeMode==='fisheye')types=['fisheye'];
+  else if(typeMode==='fixed')types=['fixed'];
+  else types=['fisheye','fixed','ptz'];
+
+  var best=null,bestScore=-1;
+  // 조합 시도
+  for(var trial=0;trial<80;trial++){
+    var arr=[];
+    var used={};
+    for(var i=0;i<n;i++){
+      var si=Math.floor(Math.random()*spots.length);
+      var sp=spots[si];
+      var ti=Math.floor(Math.random()*types.length);
+      var tp=types[ti];
+      var fov=tp==='fisheye'?190:tp==='ptz'?60:90;
+      var range=tp==='fisheye'?6:tp==='ptz'?14:9;
+      var angle=Math.random()*360;
+      var height=3.5+Math.random()*.5;
+      arr.push({id:900+i,type:tp,x:sp.x+(.5-Math.random())*.3,y:sp.y+(.5-Math.random())*.3,angle:angle,fov:fov,range:range,height:height,res:tp==='fisheye'?5:4});
+      arr[arr.length-1].x=Math.max(0.1,Math.min(ROOM.W-0.1,arr[arr.length-1].x));
+      arr[arr.length-1].y=Math.max(0.1,Math.min(ROOM.H-0.1,arr[arr.length-1].y));
+    }
+    var s=evaluate(arr).total;
+    if(s>bestScore){bestScore=s;best=arr}
+  }
+  return best;
+}
+
+function optimizePlacement(arr){
+  // 좌표 강하 최적화
+  for(var iter=0;iter<40;iter++){
+    var step=iter<15?.4:iter<30?.15:.05;
+    for(var i=0;i<arr.length;i++){
+      var c=arr[i];
+      ['x','y','angle','height'].forEach(function(prop){
+        var d=prop==='angle'?20:prop==='height'?.15:step;
+        var orig=c[prop];
+        c[prop]=orig+d;
+        if(prop==='x')c[prop]=Math.max(0.1,Math.min(ROOM.W-0.1,c[prop]));
+        if(prop==='y')c[prop]=Math.max(0.1,Math.min(ROOM.H-0.1,c[prop]));
+        if(prop==='height')c[prop]=Math.max(2,Math.min(4,c[prop]));
+        var s1=evaluate(arr).total;
+        c[prop]=orig-d;
+        if(prop==='x')c[prop]=Math.max(0.1,Math.min(ROOM.W-0.1,c[prop]));
+        if(prop==='y')c[prop]=Math.max(0.1,Math.min(ROOM.H-0.1,c[prop]));
+        if(prop==='height')c[prop]=Math.max(2,Math.min(4,c[prop]));
+        var s2=evaluate(arr).total;
+        if(s1>s2&&s1>evaluate([].concat(arr.slice(0,i),[Object.assign({},c,{[prop]:orig})],arr.slice(i+1))).total){
+          c[prop]=orig+d;
+        }else if(s2>evaluate([].concat(arr.slice(0,i),[Object.assign({},c,{[prop]:orig})],arr.slice(i+1))).total){
+          c[prop]=orig-d;
+        }else{c[prop]=orig}
+        if(prop==='x')c[prop]=Math.max(0.1,Math.min(ROOM.W-0.1,c[prop]));
+        if(prop==='y')c[prop]=Math.max(0.1,Math.min(ROOM.H-0.1,c[prop]));
+        if(prop==='height')c[prop]=Math.max(2,Math.min(4,c[prop]));
+      });
+    }
+  }
+  return arr;
+}
+
+function autoPlace(){
+  var statusEl=document.getElementById('optStatus');
+  statusEl.textContent='최적화 중...';
+
+  setTimeout(function(){
+    // 여러 후보 생성 후 최고 선택
+    var best=null,bestScore=-1;
+    for(var t=0;t<5;t++){
+      var cand=genCandidates(optCamNum,optCamType);
+      var opt=optimizePlacement(cand);
+      var s=evaluate(opt).total;
+      if(s>bestScore){bestScore=s;best=opt}
+    }
+
+    cams=[];
+    best.forEach(function(c){cams.push({id:nextId++,type:c.type,x:c.x,y:c.y,angle:c.angle,fov:c.fov,range:c.range,height:c.height,res:c.res})});
+
+    selId=cams[0].id;hcache=null;updateUI();render();if(window.update3D)update3D();
+    statusEl.textContent='완료: '+Math.round(bestScore*100)+'% ('+cams.length+'대)';
+  },50);
+}
+
+// ── 뷰 전환 ──
+function setView(v){
+  curView=v;
+  ['Split','2d','3d'].forEach(function(t){document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1)).classList.toggle('on',v===t.toLowerCase())});
+  // tabSplit → 'split', tab2d → '2d', tab3d → '3d' 보정
+  document.getElementById('tabSplit').classList.toggle('on',v==='split');
+  document.getElementById('tab2d').classList.toggle('on',v==='2d');
+  document.getElementById('tab3d').classList.toggle('on',v==='3d');
+  var p2=document.getElementById('pane2d'),p3=document.getElementById('pane3d');
+  if(v==='2d'){p2.style.display='block';p2.style.flex='1';p3.style.display='none'}
+  else if(v==='3d'){p2.style.display='none';p3.style.display='block';p3.style.flex='1'}
+  else{p2.style.display='block';p2.style.flex='1';p3.style.display='block';p3.style.flex='1'}
+  setTimeout(function(){resize();if(window.resize3D)resize3D()},50);
+}
+
+// ── 2D 렌더링 ──
+var cv,ctx,PAD=40,SCALE=1;
+function w2s(wx,wy){return{x:PAD+wx*SCALE,y:PAD+wy*SCALE}}
+function s2w(sx,sy){return{x:(sx-PAD)/SCALE,y:(sy-PAD)/SCALE}}
+
+function resize(){
+  var el=document.getElementById('pane2d');if(!el||el.style.display==='none')return;
+  var dpr=window.devicePixelRatio||1;
+  cv.width=el.clientWidth*dpr;cv.height=el.clientHeight*dpr;
+  cv.style.width=el.clientWidth+'px';cv.style.height=el.clientHeight+'px';
+  var sx=(cv.width/dpr-PAD*2)/ROOM.W,sy=(cv.height/dpr-PAD*2)/ROOM.H;
+  SCALE=Math.min(sx,sy);hcache=null;render();
+}
+
+function render(){
+  if(!ctx)return;
+  var dpr=window.devicePixelRatio||1;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  var lw=cv.width/dpr,lh=cv.height/dpr;
+  ctx.clearRect(0,0,lw,lh);ctx.fillStyle='#0f1420';ctx.fillRect(0,0,lw,lh);
+
+  // 히트맵
+  if(vis.heat&&cams.length>0){
+    if(!hcache){hcache=[];var S=.4;for(var x=0;x<ROOM.W;x+=S)for(var y=0;y<ROOM.H;y+=S){if(!walkable(x+S/2,y+S/2))continue;var ppf=covAt(x+S/2,y+S/2);if(ppf>0)hcache.push({x:x,y:y,ppf:ppf})}}
+    for(var i=0;i<hcache.length;i++){var h=hcache[i],p1=w2s(h.x,h.y),sz=.4*SCALE,ppf=h.ppf,a=Math.min(.5,ppf/100*.4+.1);
+      ctx.fillStyle=ppf>=55?'rgba(16,185,129,'+a+')':ppf>=18?'rgba(59,130,246,'+a+')':'rgba(245,158,11,'+a+')';ctx.fillRect(p1.x,p1.y,sz,sz)}
+  }
+  // 사각지대
+  if(vis.dead&&cams.length>0){for(var x=0;x<ROOM.W;x+=.5)for(var y=0;y<ROOM.H;y+=.5){if(!walkable(x+.25,y+.25))continue;if(covAt(x+.25,y+.25)<5){var p1=w2s(x,y);ctx.fillStyle='rgba(239,68,68,0.18)';ctx.fillRect(p1.x,p1.y,.5*SCALE,.5*SCALE)}}}
+
+  // 외곽+그리드
+  var r0=w2s(0,0),r1=w2s(ROOM.W,ROOM.H);
+  ctx.strokeStyle='#1e2a40';ctx.lineWidth=.5;
+  for(var x=1;x<ROOM.W;x++){var p=w2s(x,0),p2=w2s(x,ROOM.H);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p2.x,p2.y);ctx.stroke()}
+  for(var y=1;y<ROOM.H;y++){var p=w2s(0,y),p2=w2s(ROOM.W,y);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p2.x,p2.y);ctx.stroke()}
+  ctx.strokeStyle='#3b5580';ctx.lineWidth=1.5;ctx.strokeRect(r0.x,r0.y,r1.x-r0.x,r1.y-r0.y);
+
+  // 가구
+  for(var i=0;i<BOARDS.length;i++){var b=BOARDS[i],isB=b.cat==='board';ctx.fillStyle=isB?'rgba(30,42,58,0.8)':'rgba(26,34,52,0.9)';ctx.strokeStyle=isB?'#3b5580':'#2a3a52';ctx.lineWidth=1;
+    if(b.t==='rect'){var p=w2s(b.x,b.y),w=b.w*SCALE,h=b.h*SCALE;ctx.fillRect(p.x,p.y,w,h);ctx.strokeRect(p.x,p.y,w,h);ctx.fillStyle='#475569';ctx.font='8px -apple-system,sans-serif';ctx.textAlign='center';ctx.fillText(b.label,p.x+w/2,p.y+h/2+3)}
+    else if(b.t==='poly'){ctx.beginPath();for(var j=0;j<b.pts.length;j++){var p=w2s(b.pts[j][0],b.pts[j][1]);j===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)}ctx.closePath();ctx.fill();ctx.stroke()}}
+
+  // 운전원
+  for(var i=0;i<OPS.length;i++){var o=OPS[i],p=w2s(o.x,o.y);
+    if(vis.ops&&o.path){ctx.strokeStyle=o.col+'40';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.beginPath();var pp=w2s(o.path[0][0],o.path[0][1]);ctx.moveTo(pp.x,pp.y);for(var j=1;j<o.path.length;j++){pp=w2s(o.path[j][0],o.path[j][1]);ctx.lineTo(pp.x,pp.y)}ctx.stroke();ctx.setLineDash([])}
+    ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);ctx.fillStyle=o.col;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 8px -apple-system,sans-serif';ctx.textAlign='center';ctx.fillText(o.id,p.x,p.y-8)}
+
+  // 카메라
+  for(var i=0;i<cams.length;i++){var c=cams[i],p=w2s(c.x,c.y),t=CAM_TYPES[c.type],isSel=c.id===selId;
+    var aR=c.angle*Math.PI/180,fR=c.fov*Math.PI/180,eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*.65):c.range,rPx=eff*SCALE;
+    ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.arc(p.x,p.y,rPx,aR-fR/2,aR+fR/2);ctx.closePath();ctx.fillStyle=t.col+(isSel?'25':'12');ctx.fill();ctx.strokeStyle=t.col+(isSel?'70':'35');ctx.lineWidth=isSel?1.5:.7;ctx.stroke();
+    ctx.beginPath();ctx.arc(p.x,p.y,isSel?4:3,0,Math.PI*2);ctx.fillStyle=t.col;ctx.fill();if(isSel){ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke()}
+    ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+Math.cos(aR)*12,p.y+Math.sin(aR)*12);ctx.strokeStyle=t.col;ctx.lineWidth=1.5;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 8px -apple-system,sans-serif';ctx.textAlign='center';ctx.fillText('#'+c.id,p.x,p.y-7)}
+
+  // 스케일바
+  var sb=w2s(ROOM.W-2,ROOM.H-.2),se=w2s(ROOM.W,ROOM.H-.2);ctx.strokeStyle='#64748b';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(sb.x,sb.y);ctx.lineTo(se.x,se.y);ctx.stroke();ctx.fillStyle='#64748b';ctx.font='8px -apple-system,sans-serif';ctx.textAlign='center';ctx.fillText('2m',(sb.x+se.x)/2,sb.y-3);
+}
+
+// ── 마우스 ──
+function setupEvents(){
+  cv.addEventListener('mousedown',function(e){
+    var w=s2w(e.offsetX,e.offsetY);
+    if(e.button===2){for(var i=cams.length-1;i>=0;i--)if(Math.hypot(cams[i].x-w.x,cams[i].y-w.y)<.6){drag={cam:cams[i],mode:'rotate',sx:e.offsetX,orig:cams[i].angle};selId=cams[i].id;updateUI();break}return}
+    for(var i=cams.length-1;i>=0;i--)if(Math.hypot(cams[i].x-w.x,cams[i].y-w.y)<.6){drag={cam:cams[i],mode:'move',ox:cams[i].x-w.x,oy:cams[i].y-w.y};selId=cams[i].id;updateUI();return}
+  });
+  cv.addEventListener('mousemove',function(e){if(!drag)return;if(drag.mode==='move'){var w=s2w(e.offsetX,e.offsetY);drag.cam.x=Math.max(0.1,Math.min(ROOM.W-0.1,w.x+drag.ox));drag.cam.y=Math.max(0.1,Math.min(ROOM.H-0.1,w.y+drag.oy))}else{drag.cam.angle=(drag.orig+(e.offsetX-drag.sx))%360;if(drag.cam.angle<0)drag.cam.angle+=360}hcache=null;render()});
+  cv.addEventListener('mouseup',function(){if(drag){drag=null;hcache=null;updateUI();render();if(window.update3D)update3D()}});
+  cv.addEventListener('dblclick',function(e){var w=s2w(e.offsetX,e.offsetY);if(w.x>=0.1&&w.x<=ROOM.W-0.1&&w.y>=0.1&&w.y<=ROOM.H-0.1)addCam(w.x,w.y,'fixed')});
+  cv.addEventListener('contextmenu',function(e){e.preventDefault()});
+  window.addEventListener('resize',function(){resize();if(window.resize3D)resize3D()});
+}
+
+cv=document.getElementById('cv');ctx=cv.getContext('2d');
+setupEvents();setView('split');
+setTimeout(function(){autoPlace()},100);
+</script>
+
+<!-- 3D: Three.js r128 글로벌 빌드 + CDN fallback 자동 로딩 -->
+<script>
+(function(){
+  var cdns=[
+    {three:'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',orbit:'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js'},
+    {three:'https://unpkg.com/three@0.128.0/build/three.min.js',orbit:'https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js'}
+  ];
+  function loadScript(url,cb){
+    var s=document.createElement('script');s.crossOrigin='anonymous';s.src=url;
+    s.onload=function(){cb(true)};s.onerror=function(){cb(false)};document.head.appendChild(s);
+  }
+  function tryLoad(idx){
+    if(idx>=cdns.length){window._threeLoadFailed=true;return}
+    var c=cdns[idx];
+    loadScript(c.three,function(ok){
+      if(!ok||typeof THREE==='undefined'){tryLoad(idx+1);return}
+      loadScript(c.orbit,function(ok2){
+        if(!ok2||typeof THREE.OrbitControls==='undefined'){tryLoad(idx+1);return}
+        window._threeReady=true;
+      });
+    });
+  }
+  // 먼저 동기 로딩 시도
+  tryLoad(0);
+})();
+</script>
+<script>
+(function(){
+  var scene,camera,renderer,controls;
+  var camMeshes={};
+  var initRetries=0;
+
+  function show3DError(msg){
+    var pane=document.getElementById('pane3d');
+    if(!pane)return;
+    var el=document.getElementById('err3d');
+    if(!el){el=document.createElement('div');el.id='err3d';el.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ef4444;font-size:12px;text-align:center;padding:20px;z-index:10';pane.appendChild(el)}
+    el.textContent=msg;
+  }
+
+  function init3D(){
+    // THREE.js 로딩 확인
+    if(window._threeLoadFailed){show3DError('3D 라이브러리 로딩 실패 - 새로고침 해주세요');return}
+    if(!window._threeReady||typeof THREE==='undefined'||typeof THREE.OrbitControls==='undefined'){
+      if(initRetries<20){initRetries++;setTimeout(init3D,500);return}
+      show3DError('3D 라이브러리 로딩 시간 초과 - 새로고침 해주세요');return;
+    }
+
+    var cvEl=document.getElementById('cv3d');
+    var pane=document.getElementById('pane3d');
+    var W=pane.clientWidth||400,H=pane.clientHeight||400;
+
+    // Safari 호환: 캔버스에 명시적 크기 설정
+    cvEl.width=W;cvEl.height=H;
+
+    // Safari getShaderPrecisionFormat null 버그 패치:
+    // canvas.getContext를 가로채서 반환된 GL 컨텍스트에 패치 적용
+    var origGetCtx=cvEl.getContext.bind(cvEl);
+    cvEl.getContext=function(type,attrs){
+      var ctx=origGetCtx(type,attrs);
+      if(ctx&&ctx.getShaderPrecisionFormat){
+        var origSPF=ctx.getShaderPrecisionFormat.bind(ctx);
+        ctx.getShaderPrecisionFormat=function(st,pt){
+          var r=origSPF(st,pt);
+          return r||{rangeMin:1,rangeMax:1,precision:1};
+        };
+      }
+      return ctx;
+    };
+
+    scene=new THREE.Scene();
+    scene.background=new THREE.Color(0x0a0e17);
+
+    camera=new THREE.PerspectiveCamera(50,W/H,.1,100);
+    camera.position.set(ROOM.W/2,14,22);
+    camera.lookAt(ROOM.W/2,0,ROOM.H/2);
+
+    try{
+    renderer=new THREE.WebGLRenderer({canvas:cvEl,antialias:false,powerPreference:'default'});
+    }catch(e){show3DError('WebGL 초기화 실패: '+e.message);return}
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    renderer.setSize(W,H);
+
+    controls=new THREE.OrbitControls(camera,cvEl);
+    controls.target.set(ROOM.W/2,1.5,ROOM.H/2);
+    controls.enableDamping=true;controls.dampingFactor=.06;
+
+    scene.add(new THREE.AmbientLight(0x7799bb,.6));
+    var dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(ROOM.W/2,16,ROOM.H/2);scene.add(dl);
+    scene.add(new THREE.HemisphereLight(0x334466,0x111827,.5));
+
+    var fl=new THREE.Mesh(new THREE.PlaneGeometry(ROOM.W,ROOM.H),new THREE.MeshLambertMaterial({color:0x1a2234,side:THREE.DoubleSide}));
+    fl.rotation.x=-Math.PI/2;fl.position.set(ROOM.W/2,0,ROOM.H/2);scene.add(fl);
+
+    var grid=new THREE.GridHelper(20,24,0x2a3a52,0x1e293b);
+    grid.position.set(ROOM.W/2,.01,ROOM.H/2);scene.add(grid);
+
+    var wm=new THREE.MeshLambertMaterial({color:0x2d3748,transparent:true,opacity:.15,side:THREE.DoubleSide});
+    [[ROOM.W/2,ROOM.CEIL/2,0,[0,0,0],[ROOM.W,ROOM.CEIL]],
+     [ROOM.W/2,ROOM.CEIL/2,ROOM.H,[0,Math.PI,0],[ROOM.W,ROOM.CEIL]],
+     [0,ROOM.CEIL/2,ROOM.H/2,[0,Math.PI/2,0],[ROOM.H,ROOM.CEIL]],
+     [ROOM.W,ROOM.CEIL/2,ROOM.H/2,[0,-Math.PI/2,0],[ROOM.H,ROOM.CEIL]]
+    ].forEach(function(d){var m=new THREE.Mesh(new THREE.PlaneGeometry(d[4][0],d[4][1]),wm);m.position.set(d[0],d[1],d[2]);m.rotation.set(d[3][0],d[3][1],d[3][2]);scene.add(m)});
+
+    BOARDS.forEach(function(b){
+      var h=b.cat==='board'?1.7:.75;
+      var mat=b.cat==='board'?new THREE.MeshStandardMaterial({color:0x1a2e42,emissive:0x0a1a28,emissiveIntensity:.3}):new THREE.MeshLambertMaterial({color:0x1e2a3a});
+      if(b.t==='rect'){
+        var geo=new THREE.BoxGeometry(b.w,h,b.h);
+        var mesh=new THREE.Mesh(geo,mat);mesh.position.set(b.x+b.w/2,h/2,b.y+b.h/2);scene.add(mesh);
+        var edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:0x2d4a6a}));
+        edge.position.copy(mesh.position);scene.add(edge);
+      }
+    });
+
+    OPS.forEach(function(o){
+      var mat=new THREE.MeshLambertMaterial({color:new THREE.Color(o.col)});
+      var body=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,1.7,8),mat);body.position.set(o.x,.85,o.y);scene.add(body);
+      var head=new THREE.Mesh(new THREE.SphereGeometry(.15,8,8),mat);head.position.set(o.x,1.85,o.y);scene.add(head);
+    });
+
+    update3DFn();animate();
+  }
+
+  function update3DFn(){
+    if(!scene)return;
+    for(var id in camMeshes){camMeshes[id].forEach(function(o){scene.remove(o)})}
+    camMeshes={};
+
+    for(var i=0;i<cams.length;i++){
+      var c=cams[i];
+      var objs=[];
+      var col=new THREE.Color(CAM_TYPES[c.type].col);
+
+      var body=new THREE.Mesh(new THREE.BoxGeometry(.25,.2,.3),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.3}));
+      body.position.set(c.x,c.height,c.y);scene.add(body);objs.push(body);
+
+      var eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*.65):c.range;
+      var fovR=c.fov*Math.PI/180;
+      var coneGeo=new THREE.ConeGeometry(Math.tan(fovR/2)*eff,eff,12,1,true);
+      var cone=new THREE.Mesh(coneGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.08,side:THREE.DoubleSide}));
+      cone.position.set(c.x,c.height,c.y);
+      var aR=c.angle*Math.PI/180;
+      cone.rotation.set(0,0,Math.PI/2);
+      cone.rotation.order='YXZ';
+      cone.rotateOnWorldAxis(new THREE.Vector3(0,1,0),-aR+Math.PI/2);
+      cone.translateY(eff/2);
+      scene.add(cone);objs.push(cone);
+
+      var wire=new THREE.Mesh(new THREE.CylinderGeometry(.02,.02,ROOM.CEIL-c.height),new THREE.MeshBasicMaterial({color:0x475569}));
+      wire.position.set(c.x,(c.height+ROOM.CEIL)/2,c.y);scene.add(wire);objs.push(wire);
+
+      camMeshes[c.id]=objs;
+    }
+  }
+
+  function animate(){requestAnimationFrame(animate);if(controls)controls.update();if(renderer&&scene&&camera)renderer.render(scene,camera)}
+
+  function resize3DFn(){
+    var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none'||!renderer)return;
+    var W=pane.clientWidth,H=pane.clientHeight;if(W===0||H===0)return;
+    camera.aspect=W/H;camera.updateProjectionMatrix();renderer.setSize(W,H);
+  }
+
+  window.update3D=update3DFn;
+  window.resize3D=resize3DFn;
+
+  // THREE.js 로딩 대기 후 초기화 (폴링)
+  setTimeout(init3D,500);
+})();
+</script>
+</body>
+</html>
