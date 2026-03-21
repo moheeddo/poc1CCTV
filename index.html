@@ -144,13 +144,22 @@ var BOARDS=[
   {t:'rect',x:2.0,y:9.0,w:2.0,h:1.4,label:'STA 데스크',cat:'desk'},
   {t:'rect',x:5.0,y:9.0,w:2.0,h:1.4,label:'SS 데스크',cat:'desk'}
 ];
+// 영상 동선 분석 (2026-02-13 훈련 63분, 배경차분 8123회 감지)
+// 보드(y=0.1~2.0) 바로 앞(y=1.5~3.0)에서 좌우로 격렬하게 왕복
+// 좌측 보드: RO/TO 담당, 우측 보드: EO/FM 담당
 var OPS=[
-  {id:'RO',lbl:'원자로',x:2.5,y:5.5,col:'#3b82f6',path:[[2.5,5.5],[1.2,3.5],[2.0,1.5],[4.0,1.2]]},
-  {id:'TO',lbl:'터빈',x:2.5,y:6.8,col:'#8b5cf6',path:[[2.5,6.8],[1.2,5.5],[0.7,4.0],[2.0,2.0]]},
-  {id:'EO',lbl:'전기',x:6.5,y:5.5,col:'#06b6d4',path:[[6.5,5.5],[7.8,3.5],[8.5,2.0],[6.5,1.5]]},
-  {id:'FM',lbl:'기계',x:6.5,y:6.8,col:'#ec4899',path:[[6.5,6.8],[8.0,5.5],[8.5,3.5],[7.0,1.5]]},
-  {id:'STA',lbl:'기술',x:3.0,y:9.8,col:'#f59e0b',path:[[3.0,9.8],[2.0,8.0],[3.5,6.0],[4.5,5.0]]},
-  {id:'SS',lbl:'발전부장',x:6.0,y:9.8,col:'#10b981',path:[[6.0,9.8],[5.0,9.0],[5.5,8.2]]}
+  {id:'RO',lbl:'원자로',x:2.5,y:5.5,col:'#3b82f6',path:[
+    [2.5,5.5],[2.0,2.5],[1.6,2.0],[1.2,1.8],[0.8,2.0],[1.6,2.5],[2.5,2.0],[3.3,1.8],[2.9,2.5],[2.0,2.0],[1.2,2.5],[2.0,3.5],[2.5,5.5]]},
+  {id:'TO',lbl:'터빈',x:2.5,y:6.5,col:'#8b5cf6',path:[
+    [2.5,6.5],[1.6,2.5],[1.2,2.0],[0.8,1.8],[1.2,2.5],[2.0,2.0],[2.9,2.5],[2.5,2.0],[1.6,2.5],[1.6,3.5],[2.5,6.5]]},
+  {id:'EO',lbl:'전기',x:6.5,y:5.5,col:'#06b6d4',path:[
+    [6.5,5.5],[6.7,2.5],[7.1,2.0],[7.5,1.8],[7.9,2.0],[8.2,2.5],[7.5,2.0],[7.1,2.5],[6.3,2.0],[6.7,2.5],[6.7,3.5],[6.5,5.5]]},
+  {id:'FM',lbl:'기계',x:6.5,y:6.3,col:'#ec4899',path:[
+    [6.5,6.3],[5.8,2.5],[5.0,2.0],[4.5,2.5],[5.0,2.0],[5.8,2.5],[6.7,2.0],[7.1,2.5],[7.5,2.0],[6.7,2.5],[6.0,3.5],[6.5,6.3]]},
+  {id:'STA',lbl:'기술',x:3.0,y:9.8,col:'#f59e0b',path:[
+    [3.0,9.8],[3.5,3.5],[4.0,2.5],[5.0,2.0],[3.5,2.0],[2.5,2.5],[3.5,2.0],[4.5,2.5],[3.5,3.5],[3.0,9.8]]},
+  {id:'SS',lbl:'발전부장',x:6.0,y:9.8,col:'#10b981',path:[
+    [6.0,9.8],[6.0,8.1],[5.0,2.5],[4.5,2.0],[5.5,2.5],[6.0,8.1],[6.0,9.8]]}
 ];
 var cams=[],nextId=1,selId=null,vis={heat:true,dead:true,ops:false},drag=null,hcache=null;
 var curView='split';
@@ -226,72 +235,70 @@ function setCamType(t){
   for(var i=0;i<btns.length;i++)btns[i].classList.toggle('on',btns[i].getAttribute('data-t')===t);
 }
 
-// 후보 위치 생성
-function genCandidates(n,typeMode){
-  // 벽/코너 우선 후보 + 운전원 상부
-  var spots=[
-    {x:.3,y:.3},{x:ROOM.W-.3,y:.3},{x:.3,y:ROOM.H-.3},{x:ROOM.W-.3,y:ROOM.H-.3}, // 코너
-    {x:ROOM.W/2,y:.3},{x:ROOM.W/2,y:ROOM.H-.3},{x:.3,y:ROOM.H/2},{x:ROOM.W-.3,y:ROOM.H/2}, // 벽 중앙
-    {x:ROOM.W/2,y:ROOM.H/2} // 중앙
-  ];
-  OPS.forEach(function(o){spots.push({x:o.x,y:o.y})});
+// 카메라→타겟 방향 계산
+function angleToward(cx,cy,tx,ty){return Math.atan2(ty-cy,tx-cx)*180/Math.PI}
 
-  var types;
-  if(typeMode==='fisheye')types=['fisheye'];
-  else if(typeMode==='fixed')types=['fixed'];
-  else types=['fisheye','fixed','ptz'];
+// 검증된 배치 템플릿 (실제 제어실 CCTV 설계 기준)
+var TEMPLATES={
+  4:[
+    // 후면 양쪽 코너에서 보드 방향 + 전면 양쪽에서 운전석 방향
+    [{x:.3,y:12.7,aim:[4.5,2]},{x:8.7,y:12.7,aim:[4.5,2]},{x:.3,y:.3,aim:[4.5,6]},{x:8.7,y:.3,aim:[4.5,6]}],
+    // 후면 중앙 어안 + 좌우벽 + 전면 중앙
+    [{x:4.5,y:12.7,aim:[4.5,4],tp:'fisheye'},{x:.3,y:4,aim:[4.5,3]},{x:8.7,y:4,aim:[4.5,3]},{x:4.5,y:.3,aim:[4.5,6]}],
+  ],
+  5:[
+    [{x:.3,y:12.7,aim:[3,2]},{x:8.7,y:12.7,aim:[6,2]},{x:.3,y:.3,aim:[3,5]},{x:8.7,y:.3,aim:[6,5]},{x:4.5,y:6.5,aim:[4.5,2],tp:'fisheye'}],
+    [{x:.3,y:12.7,aim:[4,2]},{x:8.7,y:12.7,aim:[5,2]},{x:4.5,y:.3,aim:[4.5,6]},{x:.3,y:4,aim:[4.5,2]},{x:8.7,y:4,aim:[4.5,2]}],
+  ],
+  6:[
+    [{x:.3,y:12.7,aim:[2.5,2]},{x:8.7,y:12.7,aim:[6.5,2]},{x:.3,y:.3,aim:[3,5]},{x:8.7,y:.3,aim:[6,5]},{x:4.5,y:.3,aim:[4.5,6]},{x:4.5,y:12.7,aim:[4.5,3],tp:'fisheye'}],
+  ],
+  7:[
+    [{x:.3,y:12.7,aim:[2.5,2]},{x:8.7,y:12.7,aim:[6.5,2]},{x:.3,y:.3,aim:[3,5]},{x:8.7,y:.3,aim:[6,5]},{x:4.5,y:.3,aim:[4.5,8]},{x:4.5,y:12.7,aim:[4.5,3],tp:'fisheye'},{x:4.5,y:6.5,aim:[4.5,2],tp:'fisheye'}],
+  ],
+  8:[
+    [{x:.3,y:12.7,aim:[2,2]},{x:8.7,y:12.7,aim:[7,2]},{x:.3,y:.3,aim:[2.5,5]},{x:8.7,y:.3,aim:[6.5,5]},{x:4.5,y:.3,aim:[4.5,6]},{x:4.5,y:12.7,aim:[4.5,3]},{x:.3,y:6,aim:[4.5,3],tp:'fisheye'},{x:8.7,y:6,aim:[4.5,3],tp:'fisheye'}],
+  ]
+};
 
-  var best=null,bestScore=-1;
-  // 조합 시도
-  for(var trial=0;trial<80;trial++){
-    var arr=[];
-    var used={};
-    for(var i=0;i<n;i++){
-      var si=Math.floor(Math.random()*spots.length);
-      var sp=spots[si];
-      var ti=Math.floor(Math.random()*types.length);
-      var tp=types[ti];
-      var fov=tp==='fisheye'?190:tp==='ptz'?60:90;
-      var range=tp==='fisheye'?6:tp==='ptz'?14:9;
-      var angle=Math.random()*360;
-      var height=3.5+Math.random()*.5;
-      arr.push({id:900+i,type:tp,x:sp.x+(.5-Math.random())*.3,y:sp.y+(.5-Math.random())*.3,angle:angle,fov:fov,range:range,height:height,res:tp==='fisheye'?5:4});
-      arr[arr.length-1].x=Math.max(0.1,Math.min(ROOM.W-0.1,arr[arr.length-1].x));
-      arr[arr.length-1].y=Math.max(0.1,Math.min(ROOM.H-0.1,arr[arr.length-1].y));
-    }
-    var s=evaluate(arr).total;
-    if(s>bestScore){bestScore=s;best=arr}
-  }
-  return best;
+function makeCam(tpl,id,typeMode){
+  var tp=tpl.tp||'fixed';
+  if(typeMode==='fisheye')tp='fisheye';
+  else if(typeMode==='fixed')tp='fixed';
+  var fov=tp==='fisheye'?190:tp==='ptz'?60:90;
+  var range=tp==='fisheye'?6:tp==='ptz'?14:9;
+  var angle=angleToward(tpl.x,tpl.y,tpl.aim[0],tpl.aim[1]);
+  return{id:id,type:tp,x:tpl.x,y:tpl.y,angle:angle,fov:fov,range:range,height:3.8,res:tp==='fisheye'?5:4};
 }
 
 function optimizePlacement(arr){
-  // 좌표 강하 최적화
-  for(var iter=0;iter<40;iter++){
-    var step=iter<15?.4:iter<30?.15:.05;
+  // 좌표 강하 최적화 — 위치+방향+높이
+  for(var iter=0;iter<50;iter++){
+    var step=iter<20?.3:iter<35?.12:.04;
     for(var i=0;i<arr.length;i++){
-      var c=arr[i];
+      var c=arr[i],baseScore=evaluate(arr).total;
       ['x','y','angle','height'].forEach(function(prop){
-        var d=prop==='angle'?20:prop==='height'?.15:step;
+        var d=prop==='angle'?15:prop==='height'?.12:step;
         var orig=c[prop];
+        // +d 시도
         c[prop]=orig+d;
         if(prop==='x')c[prop]=Math.max(0.1,Math.min(ROOM.W-0.1,c[prop]));
         if(prop==='y')c[prop]=Math.max(0.1,Math.min(ROOM.H-0.1,c[prop]));
-        if(prop==='height')c[prop]=Math.max(2,Math.min(4,c[prop]));
+        if(prop==='height')c[prop]=Math.max(2.5,Math.min(3.9,c[prop]));
         var s1=evaluate(arr).total;
+        // -d 시도
         c[prop]=orig-d;
         if(prop==='x')c[prop]=Math.max(0.1,Math.min(ROOM.W-0.1,c[prop]));
         if(prop==='y')c[prop]=Math.max(0.1,Math.min(ROOM.H-0.1,c[prop]));
-        if(prop==='height')c[prop]=Math.max(2,Math.min(4,c[prop]));
+        if(prop==='height')c[prop]=Math.max(2.5,Math.min(3.9,c[prop]));
         var s2=evaluate(arr).total;
-        if(s1>s2&&s1>evaluate([].concat(arr.slice(0,i),[Object.assign({},c,{[prop]:orig})],arr.slice(i+1))).total){
-          c[prop]=orig+d;
-        }else if(s2>evaluate([].concat(arr.slice(0,i),[Object.assign({},c,{[prop]:orig})],arr.slice(i+1))).total){
-          c[prop]=orig-d;
-        }else{c[prop]=orig}
+        // 최선 선택
+        if(s1>=s2&&s1>baseScore){c[prop]=orig+d}
+        else if(s2>baseScore){c[prop]=orig-d}
+        else{c[prop]=orig}
         if(prop==='x')c[prop]=Math.max(0.1,Math.min(ROOM.W-0.1,c[prop]));
         if(prop==='y')c[prop]=Math.max(0.1,Math.min(ROOM.H-0.1,c[prop]));
-        if(prop==='height')c[prop]=Math.max(2,Math.min(4,c[prop]));
+        if(prop==='height')c[prop]=Math.max(2.5,Math.min(3.9,c[prop]));
       });
     }
   }
@@ -303,13 +310,34 @@ function autoPlace(){
   statusEl.textContent='최적화 중...';
 
   setTimeout(function(){
-    // 여러 후보 생성 후 최고 선택
+    var n=optCamNum,tm=optCamType;
+    var templates=TEMPLATES[n]||TEMPLATES[4];
     var best=null,bestScore=-1;
-    for(var t=0;t<5;t++){
-      var cand=genCandidates(optCamNum,optCamType);
-      var opt=optimizePlacement(cand);
-      var s=evaluate(opt).total;
-      if(s>bestScore){bestScore=s;best=opt}
+
+    // 각 템플릿 기반 최적화
+    for(var t=0;t<templates.length;t++){
+      var arr=templates[t].map(function(tpl,i){return makeCam(tpl,900+i,tm)});
+      arr=optimizePlacement(arr);
+      var s=evaluate(arr).total;
+      if(s>bestScore){bestScore=s;best=arr}
+    }
+
+    // 랜덤 조합도 시도 (템플릿 보완)
+    var spots=[{x:.3,y:.3},{x:8.7,y:.3},{x:.3,y:12.7},{x:8.7,y:12.7},{x:4.5,y:.3},{x:4.5,y:12.7},{x:.3,y:4},{x:8.7,y:4},{x:.3,y:8},{x:8.7,y:8},{x:4.5,y:6.5}];
+    for(var trial=0;trial<30;trial++){
+      var arr=[];
+      for(var i=0;i<n;i++){
+        var sp=spots[Math.floor(Math.random()*spots.length)];
+        var tp=tm==='fisheye'?'fisheye':tm==='fixed'?'fixed':(['fisheye','fixed','ptz'])[Math.floor(Math.random()*3)];
+        var fov=tp==='fisheye'?190:tp==='ptz'?60:90;
+        var range=tp==='fisheye'?6:tp==='ptz'?14:9;
+        var cx=sp.x+(.5-Math.random())*.4,cy=sp.y+(.5-Math.random())*.4;
+        cx=Math.max(0.1,Math.min(ROOM.W-0.1,cx));cy=Math.max(0.1,Math.min(ROOM.H-0.1,cy));
+        arr.push({id:900+i,type:tp,x:cx,y:cy,angle:angleToward(cx,cy,4.5,4),fov:fov,range:range,height:3.8,res:tp==='fisheye'?5:4});
+      }
+      arr=optimizePlacement(arr);
+      var s=evaluate(arr).total;
+      if(s>bestScore){bestScore=s;best=arr}
     }
 
     cams=[];
@@ -387,6 +415,8 @@ function render(){
   for(var i=0;i<cams.length;i++){var c=cams[i],p=w2s(c.x,c.y),t=CAM_TYPES[c.type],isSel=c.id===selId;
     var aR=c.angle*Math.PI/180,fR=c.fov*Math.PI/180,eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*.65):c.range,rPx=eff*SCALE;
     ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.arc(p.x,p.y,rPx,aR-fR/2,aR+fR/2);ctx.closePath();ctx.fillStyle=t.col+(isSel?'25':'12');ctx.fill();ctx.strokeStyle=t.col+(isSel?'70':'35');ctx.lineWidth=isSel?1.5:.7;ctx.stroke();
+    // 카메라→운전원 커버리지 라인
+    for(var j=0;j<OPS.length;j++){var o=OPS[j],ppf=covAt(o.x,o.y,[c]);if(ppf>=18){var op=w2s(o.x,o.y);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(op.x,op.y);ctx.strokeStyle=ppf>=55?'rgba(16,185,129,0.3)':'rgba(59,130,246,0.2)';ctx.lineWidth=ppf>=55?1.5:1;ctx.setLineDash([3,4]);ctx.stroke();ctx.setLineDash([])}}
     ctx.beginPath();ctx.arc(p.x,p.y,isSel?4:3,0,Math.PI*2);ctx.fillStyle=t.col;ctx.fill();if(isSel){ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke()}
     ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+Math.cos(aR)*12,p.y+Math.sin(aR)*12);ctx.strokeStyle=t.col;ctx.lineWidth=1.5;ctx.stroke();
     ctx.fillStyle='#fff';ctx.font='bold 8px -apple-system,sans-serif';ctx.textAlign='center';ctx.fillText('#'+c.id,p.x,p.y-7)}
@@ -444,73 +474,81 @@ setTimeout(function(){autoPlace()},100);
 (function(){
   var scene,camera,renderer,controls;
   var camMeshes={};
-  var initRetries=0;
+  var _initDone=false,_animating=false,_retries=0;
 
   function show3DError(msg){
-    var pane=document.getElementById('pane3d');
-    if(!pane)return;
+    var pane=document.getElementById('pane3d');if(!pane)return;
     var el=document.getElementById('err3d');
-    if(!el){el=document.createElement('div');el.id='err3d';el.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ef4444;font-size:12px;text-align:center;padding:20px;z-index:10';pane.appendChild(el)}
+    if(!el){el=document.createElement('div');el.id='err3d';el.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ef4444;font-size:12px;text-align:center;padding:20px;z-index:10;background:rgba(10,14,23,0.9);border-radius:8px';pane.appendChild(el)}
     el.textContent=msg;
   }
 
+  function patchWebGL(canvas){
+    // Safari WebGL 버그 패치 — getShaderPrecisionFormat/getSupportedExtensions null 반환 대응
+    var orig=canvas.getContext.bind(canvas);
+    canvas.getContext=function(type,attrs){
+      var gl=orig(type,attrs);
+      if(!gl)return gl;
+      if(typeof gl.getShaderPrecisionFormat==='function'){
+        var spf=gl.getShaderPrecisionFormat.bind(gl);
+        gl.getShaderPrecisionFormat=function(s,p){return spf(s,p)||{rangeMin:1,rangeMax:1,precision:1}};
+      }
+      if(typeof gl.getSupportedExtensions==='function'){
+        var gse=gl.getSupportedExtensions.bind(gl);
+        gl.getSupportedExtensions=function(){return gse()||[]};
+      }
+      return gl;
+    };
+  }
+
   function init3D(){
-    // THREE.js 로딩 확인
-    if(window._threeLoadFailed){show3DError('3D 라이브러리 로딩 실패 - 새로고침 해주세요');return}
+    if(_initDone)return;
+    if(window._threeLoadFailed){show3DError('3D 라이브러리 로딩 실패');return}
     if(!window._threeReady||typeof THREE==='undefined'||typeof THREE.OrbitControls==='undefined'){
-      if(initRetries<20){initRetries++;setTimeout(init3D,500);return}
-      show3DError('3D 라이브러리 로딩 시간 초과 - 새로고침 해주세요');return;
+      if(_retries++<30){setTimeout(init3D,400);return}
+      show3DError('3D 로딩 시간 초과');return;
     }
+    _initDone=true;
 
     var cvEl=document.getElementById('cv3d');
     var pane=document.getElementById('pane3d');
-    var W=pane.clientWidth||400,H=pane.clientHeight||400;
+    var W=pane.clientWidth||600,H=pane.clientHeight||400;
 
-    // Safari 호환: 캔버스에 명시적 크기 설정
-    cvEl.width=W;cvEl.height=H;
+    // Safari 패치 적용
+    patchWebGL(cvEl);
 
-    // Safari getShaderPrecisionFormat null 버그 패치:
-    // canvas.getContext를 가로채서 반환된 GL 컨텍스트에 패치 적용
-    var origGetCtx=cvEl.getContext.bind(cvEl);
-    cvEl.getContext=function(type,attrs){
-      var ctx=origGetCtx(type,attrs);
-      if(ctx&&ctx.getShaderPrecisionFormat){
-        var origSPF=ctx.getShaderPrecisionFormat.bind(ctx);
-        ctx.getShaderPrecisionFormat=function(st,pt){
-          var r=origSPF(st,pt);
-          return r||{rangeMin:1,rangeMax:1,precision:1};
-        };
-      }
-      return ctx;
-    };
-
+    // 씬 기본 설정
     scene=new THREE.Scene();
     scene.background=new THREE.Color(0x0a0e17);
-
     camera=new THREE.PerspectiveCamera(50,W/H,.1,100);
     camera.position.set(ROOM.W/2,14,22);
     camera.lookAt(ROOM.W/2,0,ROOM.H/2);
 
     try{
-    renderer=new THREE.WebGLRenderer({canvas:cvEl,antialias:false,powerPreference:'default'});
+      renderer=new THREE.WebGLRenderer({canvas:cvEl,antialias:false,alpha:false,powerPreference:'default',failIfMajorPerformanceCaveat:false});
     }catch(e){show3DError('WebGL 초기화 실패: '+e.message);return}
+    if(!renderer||!renderer.domElement){show3DError('WebGL 렌더러 생성 실패');return}
+
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
-    renderer.setSize(W,H);
+    renderer.setSize(W,H,false); // false = CSS 스타일 안건드림 → resize 루프 방지
 
-    controls=new THREE.OrbitControls(camera,cvEl);
+    controls=new THREE.OrbitControls(camera,renderer.domElement);
     controls.target.set(ROOM.W/2,1.5,ROOM.H/2);
-    controls.enableDamping=true;controls.dampingFactor=.06;
+    controls.enableDamping=false; // damping 끄기 → 불필요한 연속 렌더 방지
+    controls.update();
 
+    // 조명
     scene.add(new THREE.AmbientLight(0x7799bb,.6));
     var dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(ROOM.W/2,16,ROOM.H/2);scene.add(dl);
     scene.add(new THREE.HemisphereLight(0x334466,0x111827,.5));
 
+    // 바닥
     var fl=new THREE.Mesh(new THREE.PlaneGeometry(ROOM.W,ROOM.H),new THREE.MeshLambertMaterial({color:0x1a2234,side:THREE.DoubleSide}));
     fl.rotation.x=-Math.PI/2;fl.position.set(ROOM.W/2,0,ROOM.H/2);scene.add(fl);
-
     var grid=new THREE.GridHelper(20,24,0x2a3a52,0x1e293b);
     grid.position.set(ROOM.W/2,.01,ROOM.H/2);scene.add(grid);
 
+    // 벽
     var wm=new THREE.MeshLambertMaterial({color:0x2d3748,transparent:true,opacity:.15,side:THREE.DoubleSide});
     [[ROOM.W/2,ROOM.CEIL/2,0,[0,0,0],[ROOM.W,ROOM.CEIL]],
      [ROOM.W/2,ROOM.CEIL/2,ROOM.H,[0,Math.PI,0],[ROOM.W,ROOM.CEIL]],
@@ -518,39 +556,54 @@ setTimeout(function(){autoPlace()},100);
      [ROOM.W,ROOM.CEIL/2,ROOM.H/2,[0,-Math.PI/2,0],[ROOM.H,ROOM.CEIL]]
     ].forEach(function(d){var m=new THREE.Mesh(new THREE.PlaneGeometry(d[4][0],d[4][1]),wm);m.position.set(d[0],d[1],d[2]);m.rotation.set(d[3][0],d[3][1],d[3][2]);scene.add(m)});
 
+    // 가구
     BOARDS.forEach(function(b){
+      if(b.t!=='rect')return;
       var h=b.cat==='board'?1.7:.75;
-      var mat=b.cat==='board'?new THREE.MeshStandardMaterial({color:0x1a2e42,emissive:0x0a1a28,emissiveIntensity:.3}):new THREE.MeshLambertMaterial({color:0x1e2a3a});
-      if(b.t==='rect'){
-        var geo=new THREE.BoxGeometry(b.w,h,b.h);
-        var mesh=new THREE.Mesh(geo,mat);mesh.position.set(b.x+b.w/2,h/2,b.y+b.h/2);scene.add(mesh);
-        var edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:0x2d4a6a}));
-        edge.position.copy(mesh.position);scene.add(edge);
-      }
+      var mat=b.cat==='board'?new THREE.MeshLambertMaterial({color:0x1a2e42}):new THREE.MeshLambertMaterial({color:0x1e2a3a});
+      var geo=new THREE.BoxGeometry(b.w,h,b.h);
+      var mesh=new THREE.Mesh(geo,mat);mesh.position.set(b.x+b.w/2,h/2,b.y+b.h/2);scene.add(mesh);
+      var edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:0x2d4a6a}));
+      edge.position.copy(mesh.position);scene.add(edge);
     });
 
+    // 운전원
     OPS.forEach(function(o){
       var mat=new THREE.MeshLambertMaterial({color:new THREE.Color(o.col)});
       var body=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,1.7,8),mat);body.position.set(o.x,.85,o.y);scene.add(body);
       var head=new THREE.Mesh(new THREE.SphereGeometry(.15,8,8),mat);head.position.set(o.x,1.85,o.y);scene.add(head);
     });
 
-    update3DFn();animate();
+    update3DFn();
+    startAnimate();
+  }
+
+  function startAnimate(){
+    if(_animating)return;
+    _animating=true;
+    function loop(){
+      requestAnimationFrame(loop);
+      if(!renderer||!scene||!camera)return;
+      if(controls)controls.update();
+      renderer.render(scene,camera);
+    }
+    loop();
   }
 
   function update3DFn(){
     if(!scene)return;
-    for(var id in camMeshes){camMeshes[id].forEach(function(o){scene.remove(o)})}
+    for(var id in camMeshes){camMeshes[id].forEach(function(o){scene.remove(o)});delete camMeshes[id]}
     camMeshes={};
 
     for(var i=0;i<cams.length;i++){
-      var c=cams[i];
-      var objs=[];
+      var c=cams[i],objs=[];
       var col=new THREE.Color(CAM_TYPES[c.type].col);
 
-      var body=new THREE.Mesh(new THREE.BoxGeometry(.25,.2,.3),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.3}));
+      // 카메라 본체
+      var body=new THREE.Mesh(new THREE.BoxGeometry(.25,.2,.3),new THREE.MeshLambertMaterial({color:col}));
       body.position.set(c.x,c.height,c.y);scene.add(body);objs.push(body);
 
+      // FOV 콘
       var eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*.65):c.range;
       var fovR=c.fov*Math.PI/180;
       var coneGeo=new THREE.ConeGeometry(Math.tan(fovR/2)*eff,eff,12,1,true);
@@ -563,6 +616,7 @@ setTimeout(function(){autoPlace()},100);
       cone.translateY(eff/2);
       scene.add(cone);objs.push(cone);
 
+      // 천장 와이어
       var wire=new THREE.Mesh(new THREE.CylinderGeometry(.02,.02,ROOM.CEIL-c.height),new THREE.MeshBasicMaterial({color:0x475569}));
       wire.position.set(c.x,(c.height+ROOM.CEIL)/2,c.y);scene.add(wire);objs.push(wire);
 
@@ -570,19 +624,20 @@ setTimeout(function(){autoPlace()},100);
     }
   }
 
-  function animate(){requestAnimationFrame(animate);if(controls)controls.update();if(renderer&&scene&&camera)renderer.render(scene,camera)}
-
+  var _resizeTimer=0;
   function resize3DFn(){
-    var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none'||!renderer)return;
-    var W=pane.clientWidth,H=pane.clientHeight;if(W===0||H===0)return;
-    camera.aspect=W/H;camera.updateProjectionMatrix();renderer.setSize(W,H);
+    clearTimeout(_resizeTimer);
+    _resizeTimer=setTimeout(function(){
+      var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none'||!renderer)return;
+      var W=pane.clientWidth,H=pane.clientHeight;if(W<10||H<10)return;
+      camera.aspect=W/H;camera.updateProjectionMatrix();
+      renderer.setSize(W,H,false);
+    },100);
   }
 
   window.update3D=update3DFn;
   window.resize3D=resize3DFn;
-
-  // THREE.js 로딩 대기 후 초기화 (폴링)
-  setTimeout(init3D,500);
+  setTimeout(init3D,600);
 })();
 </script>
 </body>
