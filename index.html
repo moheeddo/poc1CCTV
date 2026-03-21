@@ -47,7 +47,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .pane-2d{position:relative;overflow:hidden}
 .pane-3d{position:relative;overflow:hidden;border-left:1px solid #2a3550}
 .pane-2d canvas{display:block;width:100%;height:100%}
-.pane-3d canvas{display:block}
+.pane-3d canvas{position:absolute;top:0;left:0;width:100%!important;height:100%!important}
 .hint{position:absolute;bottom:8px;left:8px;font-size:9px;color:#475569;pointer-events:none}
 .toggle-bar{position:absolute;top:8px;left:8px;display:flex;gap:3px;z-index:5}
 .tog{padding:3px 8px;background:rgba(15,20,32,.9);border:1px solid #2a3550;color:#64748b;border-radius:10px;cursor:pointer;font-size:9px;font-family:inherit;transition:all .15s}
@@ -491,11 +491,10 @@ setTimeout(function(){autoPlace()},100);
     camera.position.set(ROOM.W/2,14,22);
     camera.lookAt(ROOM.W/2,0,ROOM.H/2);
 
-    // Three.js가 캔버스 자체 생성 — CSS 충돌 없음
     try{renderer=new THREE.WebGLRenderer({antialias:false})}catch(e){return}
     if(!renderer)return;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
-    renderer.setSize(W,H);
+    renderer.setPixelRatio(1); // pixelRatio=1로 성능 확보
+    renderer.setSize(W,H,false); // false=CSS 안건드림
     pane.appendChild(renderer.domElement);
 
     controls=new THREE.OrbitControls(camera,renderer.domElement);
@@ -562,15 +561,12 @@ setTimeout(function(){autoPlace()},100);
     }
   }
 
-  // resize는 pane 크기 변경 시에만, 크기 같으면 skip
-  var _lw=0,_lh=0;
   function resize3DFn(){
     if(!renderer||!pane||pane.style.display==='none')return;
     var W=pane.clientWidth,H=pane.clientHeight;
-    if(W<10||H<10||(_lw===W&&_lh===H))return;
-    _lw=W;_lh=H;
+    if(W<10||H<10)return;
     camera.aspect=W/H;camera.updateProjectionMatrix();
-    renderer.setSize(W,H);
+    renderer.setSize(W,H,false); // 버퍼만 업데이트, CSS는 100%!important가 처리
   }
 
   window.update3D=update3DFn;
