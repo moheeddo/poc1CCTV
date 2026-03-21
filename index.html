@@ -46,8 +46,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .view-area{flex:1;display:flex;position:relative;overflow:hidden}
 .pane-2d{position:relative;overflow:hidden}
 .pane-3d{position:relative;overflow:hidden;border-left:1px solid #2a3550}
-.pane-2d canvas{display:block;width:100%;height:100%}
-#cv3d{display:block}
+.pane-2d canvas,.pane-3d canvas{display:block;width:100%;height:100%}
 .hint{position:absolute;bottom:8px;left:8px;font-size:9px;color:#475569;pointer-events:none}
 .toggle-bar{position:absolute;top:8px;left:8px;display:flex;gap:3px;z-index:5}
 .tog{padding:3px 8px;background:rgba(15,20,32,.9);border:1px solid #2a3550;color:#64748b;border-radius:10px;cursor:pointer;font-size:9px;font-family:inherit;transition:all .15s}
@@ -531,7 +530,7 @@ setTimeout(function(){autoPlace()},100);
     if(!renderer||!renderer.domElement){show3DError('WebGL 렌더러 생성 실패');return}
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
-    renderer.setSize(W,H);
+    renderer.setSize(W,H,false);
 
     controls=new THREE.OrbitControls(camera,renderer.domElement);
     controls.target.set(ROOM.W/2,1.5,ROOM.H/2);
@@ -631,7 +630,7 @@ setTimeout(function(){autoPlace()},100);
       var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none'||!renderer)return;
       var W=pane.clientWidth,H=pane.clientHeight;if(W<10||H<10)return;
       camera.aspect=W/H;camera.updateProjectionMatrix();
-      renderer.setSize(W,H);
+      renderer.setSize(W,H,false);
       _needsRender=true;
     },100);
   }
