@@ -360,7 +360,7 @@ function setView(v){
   if(v==='2d'){p2.style.display='block';p2.style.flex='1';p3.style.display='none'}
   else if(v==='3d'){p2.style.display='none';p3.style.display='block';p3.style.flex='1'}
   else{p2.style.display='block';p2.style.flex='1';p3.style.display='block';p3.style.flex='1'}
-  requestAnimationFrame(function(){resize();if(window.resize3D)resize3D()});
+  setTimeout(function(){resize();if(window.resize3D)resize3D()},100);
 }
 
 // ── 2D 렌더링 ──
@@ -472,70 +472,43 @@ setTimeout(function(){autoPlace()},100);
 </script>
 <script>
 (function(){
-  var scene,camera,renderer,controls;
-  var camMeshes={};
-  var _initDone=false,_retries=0,_needsRender=true;
-
-  function show3DError(msg){
-    var pane=document.getElementById('pane3d');if(!pane)return;
-    var el=document.getElementById('err3d');
-    if(!el){el=document.createElement('div');el.id='err3d';el.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ef4444;font-size:12px;text-align:center;padding:20px;z-index:10;background:rgba(10,14,23,0.9);border-radius:8px';pane.appendChild(el)}
-    el.textContent=msg;
-  }
-
-  function patchWebGL(canvas){
-    // Safari WebGL 버그 패치 — getShaderPrecisionFormat/getSupportedExtensions null 반환 대응
-    var orig=canvas.getContext.bind(canvas);
-    canvas.getContext=function(type,attrs){
-      var gl=orig(type,attrs);
-      if(!gl)return gl;
-      if(typeof gl.getShaderPrecisionFormat==='function'){
-        var spf=gl.getShaderPrecisionFormat.bind(gl);
-        gl.getShaderPrecisionFormat=function(s,p){return spf(s,p)||{rangeMin:1,rangeMax:1,precision:1}};
-      }
-      if(typeof gl.getSupportedExtensions==='function'){
-        var gse=gl.getSupportedExtensions.bind(gl);
-        gl.getSupportedExtensions=function(){return gse()||[]};
-      }
-      return gl;
-    };
-  }
+  var scene,camera,renderer,controls,camMeshes={},_done=false,_try=0;
 
   function init3D(){
-    if(_initDone)return;
-    if(window._threeLoadFailed){show3DError('3D 라이브러리 로딩 실패');return}
-    if(!window._threeReady||typeof THREE==='undefined'||typeof THREE.OrbitControls==='undefined'){
-      if(_retries++<30){setTimeout(init3D,400);return}
-      show3DError('3D 로딩 시간 초과');return;
+    if(_done)return;
+    if(typeof THREE==='undefined'||typeof THREE.OrbitControls==='undefined'){
+      if(_try++<40){setTimeout(init3D,300);return}
+      return;
     }
-    _initDone=true;
+    _done=true;
 
-    var cvEl=document.getElementById('cv3d');
+    var cv=document.getElementById('cv3d');
     var pane=document.getElementById('pane3d');
     var W=pane.clientWidth||600,H=pane.clientHeight||400;
 
-    // Safari 패치 적용
-    patchWebGL(cvEl);
+    // Safari WebGL 패치
+    var _gc=cv.getContext.bind(cv);
+    cv.getContext=function(t,a){
+      var g=_gc(t,a);if(!g)return g;
+      if(g.getShaderPrecisionFormat){var _s=g.getShaderPrecisionFormat.bind(g);g.getShaderPrecisionFormat=function(a,b){return _s(a,b)||{rangeMin:1,rangeMax:1,precision:1}}}
+      if(g.getSupportedExtensions){var _e=g.getSupportedExtensions.bind(g);g.getSupportedExtensions=function(){return _e()||[]}}
+      return g;
+    };
 
-    // 씬 기본 설정
     scene=new THREE.Scene();
     scene.background=new THREE.Color(0x0a0e17);
     camera=new THREE.PerspectiveCamera(50,W/H,.1,100);
     camera.position.set(ROOM.W/2,14,22);
     camera.lookAt(ROOM.W/2,0,ROOM.H/2);
 
-    try{
-      renderer=new THREE.WebGLRenderer({canvas:cvEl,antialias:false,alpha:false,powerPreference:'default',failIfMajorPerformanceCaveat:false});
-    }catch(e){show3DError('WebGL 초기화 실패: '+e.message);return}
-    if(!renderer||!renderer.domElement){show3DError('WebGL 렌더러 생성 실패');return}
-
+    try{renderer=new THREE.WebGLRenderer({canvas:cv,antialias:false})}catch(e){return}
+    if(!renderer)return;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
-    renderer.setSize(W,H,false);
+    renderer.setSize(W,H);
 
-    controls=new THREE.OrbitControls(camera,renderer.domElement);
+    controls=new THREE.OrbitControls(camera,cv);
     controls.target.set(ROOM.W/2,1.5,ROOM.H/2);
     controls.enableDamping=false;
-    controls.addEventListener('change',function(){_needsRender=true});
     controls.update();
 
     // 조명
@@ -543,7 +516,7 @@ setTimeout(function(){autoPlace()},100);
     var dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(ROOM.W/2,16,ROOM.H/2);scene.add(dl);
     scene.add(new THREE.HemisphereLight(0x334466,0x111827,.5));
 
-    // 바닥
+    // 바닥+그리드
     var fl=new THREE.Mesh(new THREE.PlaneGeometry(ROOM.W,ROOM.H),new THREE.MeshLambertMaterial({color:0x1a2234,side:THREE.DoubleSide}));
     fl.rotation.x=-Math.PI/2;fl.position.set(ROOM.W/2,0,ROOM.H/2);scene.add(fl);
     var grid=new THREE.GridHelper(20,24,0x2a3a52,0x1e293b);
@@ -561,11 +534,10 @@ setTimeout(function(){autoPlace()},100);
     BOARDS.forEach(function(b){
       if(b.t!=='rect')return;
       var h=b.cat==='board'?1.7:.75;
-      var mat=b.cat==='board'?new THREE.MeshLambertMaterial({color:0x1a2e42}):new THREE.MeshLambertMaterial({color:0x1e2a3a});
+      var mat=new THREE.MeshLambertMaterial({color:b.cat==='board'?0x1a2e42:0x1e2a3a});
       var geo=new THREE.BoxGeometry(b.w,h,b.h);
       var mesh=new THREE.Mesh(geo,mat);mesh.position.set(b.x+b.w/2,h/2,b.y+b.h/2);scene.add(mesh);
-      var edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:0x2d4a6a}));
-      edge.position.copy(mesh.position);scene.add(edge);
+      scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:0x2d4a6a})).translateX(mesh.position.x).translateY(mesh.position.y).translateZ(mesh.position.z));
     });
 
     // 운전원
@@ -576,64 +548,41 @@ setTimeout(function(){autoPlace()},100);
     });
 
     update3DFn();
-    renderLoop();
-  }
-
-  function renderLoop(){
-    requestAnimationFrame(renderLoop);
-    if(!renderer||!scene||!camera)return;
-    if(_needsRender){
-      _needsRender=false;
-      renderer.render(scene,camera);
-    }
+    (function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)})();
   }
 
   function update3DFn(){
     if(!scene)return;
-    _needsRender=true;
     for(var id in camMeshes){camMeshes[id].forEach(function(o){scene.remove(o)});delete camMeshes[id]}
     camMeshes={};
-
     for(var i=0;i<cams.length;i++){
-      var c=cams[i],objs=[];
-      var col=new THREE.Color(CAM_TYPES[c.type].col);
-
-      // 카메라 본체
+      var c=cams[i],objs=[],col=new THREE.Color(CAM_TYPES[c.type].col);
       var body=new THREE.Mesh(new THREE.BoxGeometry(.25,.2,.3),new THREE.MeshLambertMaterial({color:col}));
       body.position.set(c.x,c.height,c.y);scene.add(body);objs.push(body);
-
-      // FOV 콘
       var eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*.65):c.range;
-      var fovR=c.fov*Math.PI/180;
-      var coneGeo=new THREE.ConeGeometry(Math.tan(fovR/2)*eff,eff,12,1,true);
+      var coneGeo=new THREE.ConeGeometry(Math.tan(c.fov*Math.PI/360)*eff,eff,12,1,true);
       var cone=new THREE.Mesh(coneGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.08,side:THREE.DoubleSide}));
       cone.position.set(c.x,c.height,c.y);
-      var aR=c.angle*Math.PI/180;
-      cone.rotation.set(0,0,Math.PI/2);
-      cone.rotation.order='YXZ';
-      cone.rotateOnWorldAxis(new THREE.Vector3(0,1,0),-aR+Math.PI/2);
+      cone.rotation.set(0,0,Math.PI/2);cone.rotation.order='YXZ';
+      cone.rotateOnWorldAxis(new THREE.Vector3(0,1,0),-c.angle*Math.PI/180+Math.PI/2);
       cone.translateY(eff/2);
       scene.add(cone);objs.push(cone);
-
-      // 천장 와이어
       var wire=new THREE.Mesh(new THREE.CylinderGeometry(.02,.02,ROOM.CEIL-c.height),new THREE.MeshBasicMaterial({color:0x475569}));
       wire.position.set(c.x,(c.height+ROOM.CEIL)/2,c.y);scene.add(wire);objs.push(wire);
-
       camMeshes[c.id]=objs;
     }
   }
 
   function resize3DFn(){
-    var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none'||!renderer)return;
+    if(!renderer)return;
+    var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none')return;
     var W=pane.clientWidth,H=pane.clientHeight;if(W<10||H<10)return;
-    camera.aspect=W/H;camera.updateProjectionMatrix();
-    renderer.setSize(W,H,false);
-    _needsRender=true;
+    camera.aspect=W/H;camera.updateProjectionMatrix();renderer.setSize(W,H);
   }
 
   window.update3D=update3DFn;
   window.resize3D=resize3DFn;
-  setTimeout(init3D,600);
+  setTimeout(init3D,500);
 })();
 </script>
 </body>
