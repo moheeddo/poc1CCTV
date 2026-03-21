@@ -44,10 +44,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .vtab{padding:7px 14px;font-size:10px;cursor:pointer;border-bottom:2px solid transparent;color:#64748b;transition:all .15s;font-family:inherit;background:none;border-top:none;border-left:none;border-right:none}
 .vtab.on{color:#3b82f6;border-bottom-color:#3b82f6}
 .view-area{flex:1;display:flex;position:relative;overflow:hidden}
-.pane-2d{position:relative;overflow:hidden}
-.pane-3d{position:relative;overflow:hidden;border-left:1px solid #2a3550}
+.pane-2d{position:relative;overflow:hidden;min-width:0;min-height:0}
+.pane-3d{position:relative;overflow:hidden;border-left:1px solid #2a3550;min-width:0;min-height:0}
 .pane-2d canvas{display:block;width:100%;height:100%}
-.pane-3d canvas{position:absolute;top:0;left:0;width:100%!important;height:100%!important}
 .hint{position:absolute;bottom:8px;left:8px;font-size:9px;color:#475569;pointer-events:none}
 .toggle-bar{position:absolute;top:8px;left:8px;display:flex;gap:3px;z-index:5}
 .tog{padding:3px 8px;background:rgba(15,20,32,.9);border:1px solid #2a3550;color:#64748b;border-radius:10px;cursor:pointer;font-size:9px;font-family:inherit;transition:all .15s}
@@ -473,7 +472,7 @@ setTimeout(function(){autoPlace()},100);
 </script>
 <script>
 (function(){
-  var scene,camera,renderer,controls,camMeshes={},pane,_done=false,_try=0;
+  var scene,camera,renderer,controls,camMeshes={},container,_done=false,_try=0;
 
   function init3D(){
     if(_done)return;
@@ -482,36 +481,46 @@ setTimeout(function(){autoPlace()},100);
       return;
     }
     _done=true;
-    pane=document.getElementById('pane3d');
-    var W=pane.clientWidth||600,H=pane.clientHeight||400;
+    container=document.getElementById('pane3d');
+    var W=container.clientWidth||600,H=container.clientHeight||400;
 
+    // 1. Renderer — Three.js가 캔버스 자체 생성
+    try{renderer=new THREE.WebGLRenderer({antialias:false})}catch(e){return}
+    if(!renderer)return;
+    renderer.setPixelRatio(window.devicePixelRatio||1);
+    renderer.setSize(W,H,false); // false = inline CSS 안건드림
+    // 캔버스 CSS: 100% 채우기 (display:block으로 inline gap 제거)
+    renderer.domElement.style.display='block';
+    renderer.domElement.style.width='100%';
+    renderer.domElement.style.height='100%';
+    container.appendChild(renderer.domElement);
+
+    // 2. Scene + Camera
     scene=new THREE.Scene();
     scene.background=new THREE.Color(0x0a0e17);
     camera=new THREE.PerspectiveCamera(50,W/H,.1,100);
     camera.position.set(ROOM.W/2,14,22);
     camera.lookAt(ROOM.W/2,0,ROOM.H/2);
 
-    try{renderer=new THREE.WebGLRenderer({antialias:false})}catch(e){return}
-    if(!renderer)return;
-    renderer.setPixelRatio(1); // pixelRatio=1로 성능 확보
-    renderer.setSize(W,H,false); // false=CSS 안건드림
-    pane.appendChild(renderer.domElement);
-
+    // 3. Controls
     controls=new THREE.OrbitControls(camera,renderer.domElement);
     controls.target.set(ROOM.W/2,1.5,ROOM.H/2);
     controls.enableDamping=true;
     controls.dampingFactor=0.08;
     controls.update();
 
+    // 4. Lights
     scene.add(new THREE.AmbientLight(0x7799bb,.6));
     var dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(ROOM.W/2,16,ROOM.H/2);scene.add(dl);
     scene.add(new THREE.HemisphereLight(0x334466,0x111827,.5));
 
+    // 5. Floor + Grid
     var fl=new THREE.Mesh(new THREE.PlaneGeometry(ROOM.W,ROOM.H),new THREE.MeshLambertMaterial({color:0x1a2234,side:THREE.DoubleSide}));
     fl.rotation.x=-Math.PI/2;fl.position.set(ROOM.W/2,0,ROOM.H/2);scene.add(fl);
     var grid=new THREE.GridHelper(20,24,0x2a3a52,0x1e293b);
     grid.position.set(ROOM.W/2,.01,ROOM.H/2);scene.add(grid);
 
+    // 6. Walls
     var wm=new THREE.MeshLambertMaterial({color:0x2d3748,transparent:true,opacity:.15,side:THREE.DoubleSide});
     [[ROOM.W/2,ROOM.CEIL/2,0,[0,0,0],[ROOM.W,ROOM.CEIL]],
      [ROOM.W/2,ROOM.CEIL/2,ROOM.H,[0,Math.PI,0],[ROOM.W,ROOM.CEIL]],
@@ -519,6 +528,7 @@ setTimeout(function(){autoPlace()},100);
      [ROOM.W,ROOM.CEIL/2,ROOM.H/2,[0,-Math.PI/2,0],[ROOM.H,ROOM.CEIL]]
     ].forEach(function(d){var m=new THREE.Mesh(new THREE.PlaneGeometry(d[4][0],d[4][1]),wm);m.position.set(d[0],d[1],d[2]);m.rotation.set(d[3][0],d[3][1],d[3][2]);scene.add(m)});
 
+    // 7. Furniture
     BOARDS.forEach(function(b){
       if(b.t!=='rect')return;
       var h=b.cat==='board'?1.7:.75;
@@ -529,6 +539,7 @@ setTimeout(function(){autoPlace()},100);
       edge.position.copy(mesh.position);scene.add(edge);
     });
 
+    // 8. Operators
     OPS.forEach(function(o){
       var mat=new THREE.MeshLambertMaterial({color:new THREE.Color(o.col)});
       var body=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,1.7,8),mat);body.position.set(o.x,.85,o.y);scene.add(body);
@@ -536,7 +547,27 @@ setTimeout(function(){autoPlace()},100);
     });
 
     update3DFn();
-    (function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)})();
+
+    // 9. ResizeObserver — container 크기 변경 감지 (rAF로 coalesce)
+    if(typeof ResizeObserver!=='undefined'){
+      new ResizeObserver(function(entries){
+        requestAnimationFrame(function(){
+          if(!renderer||!container)return;
+          var rect=entries[0].contentRect;
+          var w=rect.width,h=rect.height;
+          if(w<10||h<10)return;
+          camera.aspect=w/h;camera.updateProjectionMatrix();
+          renderer.setSize(w,h,false);
+        });
+      }).observe(container);
+    }
+
+    // 10. Animate loop
+    (function animate(){
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene,camera);
+    })();
   }
 
   function update3DFn(){
@@ -561,12 +592,13 @@ setTimeout(function(){autoPlace()},100);
     }
   }
 
+  // resize3D는 setView에서 호출됨 — ResizeObserver가 이미 처리하지만 탭 전환 시 강제 호출용
   function resize3DFn(){
-    if(!renderer||!pane||pane.style.display==='none')return;
-    var W=pane.clientWidth,H=pane.clientHeight;
+    if(!renderer||!container||container.style.display==='none')return;
+    var W=container.clientWidth,H=container.clientHeight;
     if(W<10||H<10)return;
     camera.aspect=W/H;camera.updateProjectionMatrix();
-    renderer.setSize(W,H,false); // 버퍼만 업데이트, CSS는 100%!important가 처리
+    renderer.setSize(W,H,false);
   }
 
   window.update3D=update3DFn;
