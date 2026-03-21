@@ -360,7 +360,7 @@ function setView(v){
   if(v==='2d'){p2.style.display='block';p2.style.flex='1';p3.style.display='none'}
   else if(v==='3d'){p2.style.display='none';p3.style.display='block';p3.style.flex='1'}
   else{p2.style.display='block';p2.style.flex='1';p3.style.display='block';p3.style.flex='1'}
-  setTimeout(function(){resize();if(window.resize3D)resize3D()},50);
+  requestAnimationFrame(function(){resize();if(window.resize3D)resize3D()});
 }
 
 // ── 2D 렌더링 ──
@@ -623,16 +623,12 @@ setTimeout(function(){autoPlace()},100);
     }
   }
 
-  var _resizeTimer=0;
   function resize3DFn(){
-    clearTimeout(_resizeTimer);
-    _resizeTimer=setTimeout(function(){
-      var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none'||!renderer)return;
-      var W=pane.clientWidth,H=pane.clientHeight;if(W<10||H<10)return;
-      camera.aspect=W/H;camera.updateProjectionMatrix();
-      renderer.setSize(W,H,false);
-      _needsRender=true;
-    },100);
+    var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none'||!renderer)return;
+    var W=pane.clientWidth,H=pane.clientHeight;if(W<10||H<10)return;
+    camera.aspect=W/H;camera.updateProjectionMatrix();
+    renderer.setSize(W,H,false);
+    _needsRender=true;
   }
 
   window.update3D=update3DFn;
