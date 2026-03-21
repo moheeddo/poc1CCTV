@@ -444,33 +444,14 @@ setupEvents();setView('split');
 setTimeout(function(){autoPlace()},100);
 </script>
 
-<!-- 3D: iframe으로 완전 격리 -->
+<!-- 3D: iframe이 parent.ROOM/cams 등을 직접 참조 -->
 <script>
 (function(){
   var f3d=document.getElementById('f3d');
-  var _sent=false;
-
-  function send3DInit(){
-    if(!f3d||!f3d.contentWindow)return;
-    try{
-      f3d.contentWindow.postMessage({
-        type:'init',ROOM:ROOM,BOARDS:BOARDS,OPS:OPS,CAM_TYPES:CAM_TYPES,cams:cams
-      },'*');
-      _sent=true;
-    }catch(e){}
-  }
-
-  // iframe 로드 완료 후 데이터 전송
-  f3d.addEventListener('load',function(){
-    setTimeout(send3DInit,300);
-  });
-
-  // 카메라 업데이트 시 iframe에 전달
   window.update3D=function(){
-    if(!_sent){send3DInit();return}
-    try{f3d.contentWindow.postMessage({type:'update',cams:cams,CAM_TYPES:CAM_TYPES},'*')}catch(e){}
+    try{if(f3d.contentWindow.updateCams)f3d.contentWindow.updateCams()}catch(e){}
   };
-  window.resize3D=function(){};  // iframe이 자체 resize 처리
+  window.resize3D=function(){};
 })();
 </script>
 </body>

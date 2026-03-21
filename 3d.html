@@ -6,21 +6,25 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
-var ROOM,BOARDS,OPS,CAM_TYPES,cams=[];
 var scene,camera,renderer,controls,camMeshes={};
+var ROOM,BOARDS,OPS,CAM_TYPES;
 
-// 부모 페이지에서 데이터 수신
-window.addEventListener('message',function(e){
-  var d=e.data;
-  if(d.type==='init'){
-    ROOM=d.ROOM;BOARDS=d.BOARDS;OPS=d.OPS;CAM_TYPES=d.CAM_TYPES;
-    cams=d.cams||[];
-    initScene();
-  }else if(d.type==='update'){
-    cams=d.cams;CAM_TYPES=d.CAM_TYPES;
-    updateCams();
+function getParentData(){
+  try{
+    var p=window.parent;
+    if(!p||!p.ROOM)return false;
+    ROOM=p.ROOM;BOARDS=p.BOARDS;OPS=p.OPS;CAM_TYPES=p.CAM_TYPES;
+    return true;
+  }catch(e){return false}
+}
+
+// 부모 데이터 대기 후 초기화
+(function waitAndInit(){
+  if(typeof THREE==='undefined'||typeof THREE.OrbitControls==='undefined'||!getParentData()){
+    setTimeout(waitAndInit,200);return;
   }
-});
+  initScene();
+})();
 
 function initScene(){
   scene=new THREE.Scene();
@@ -40,18 +44,15 @@ function initScene(){
   controls.enableDamping=true;
   controls.dampingFactor=0.08;
 
-  // 조명
   scene.add(new THREE.AmbientLight(0x7799bb,.6));
   var dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(ROOM.W/2,16,ROOM.H/2);scene.add(dl);
   scene.add(new THREE.HemisphereLight(0x334466,0x111827,.5));
 
-  // 바닥
   var fl=new THREE.Mesh(new THREE.PlaneGeometry(ROOM.W,ROOM.H),new THREE.MeshLambertMaterial({color:0x1a2234,side:THREE.DoubleSide}));
   fl.rotation.x=-Math.PI/2;fl.position.set(ROOM.W/2,0,ROOM.H/2);scene.add(fl);
   var grid=new THREE.GridHelper(20,24,0x2a3a52,0x1e293b);
   grid.position.set(ROOM.W/2,.01,ROOM.H/2);scene.add(grid);
 
-  // 벽
   var wm=new THREE.MeshLambertMaterial({color:0x2d3748,transparent:true,opacity:.15,side:THREE.DoubleSide});
   [[ROOM.W/2,ROOM.CEIL/2,0,[0,0,0],[ROOM.W,ROOM.CEIL]],
    [ROOM.W/2,ROOM.CEIL/2,ROOM.H,[0,Math.PI,0],[ROOM.W,ROOM.CEIL]],
@@ -59,7 +60,6 @@ function initScene(){
    [ROOM.W,ROOM.CEIL/2,ROOM.H/2,[0,-Math.PI/2,0],[ROOM.H,ROOM.CEIL]]
   ].forEach(function(d){var m=new THREE.Mesh(new THREE.PlaneGeometry(d[4][0],d[4][1]),wm);m.position.set(d[0],d[1],d[2]);m.rotation.set(d[3][0],d[3][1],d[3][2]);scene.add(m)});
 
-  // 가구
   BOARDS.forEach(function(b){
     if(b.t!=='rect')return;
     var h=b.cat==='board'?1.7:.75;
@@ -70,7 +70,6 @@ function initScene(){
     edge.position.copy(mesh.position);scene.add(edge);
   });
 
-  // 운전원
   OPS.forEach(function(o){
     var mat=new THREE.MeshLambertMaterial({color:new THREE.Color(o.col)});
     var body=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,1.7,8),mat);body.position.set(o.x,.85,o.y);scene.add(body);
@@ -92,7 +91,11 @@ function initScene(){
 }
 
 function updateCams(){
-  if(!scene)return;
+  if(!scene||!CAM_TYPES)return;
+  // 부모에서 최신 cams 가져오기
+  var cams=[];
+  try{cams=window.parent.cams||[]}catch(e){}
+
   for(var id in camMeshes){camMeshes[id].forEach(function(o){scene.remove(o)});delete camMeshes[id]}
   camMeshes={};
   for(var i=0;i<cams.length;i++){
