@@ -573,11 +573,14 @@ setTimeout(function(){autoPlace()},100);
     }
   }
 
+  var _resizing=false;
   function resize3DFn(){
-    if(!renderer)return;
-    var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none')return;
-    var W=pane.clientWidth,H=pane.clientHeight;if(W<10||H<10)return;
+    if(!renderer||_resizing)return;
+    _resizing=true;
+    var pane=document.getElementById('pane3d');if(!pane||pane.style.display==='none'){_resizing=false;return}
+    var W=pane.clientWidth,H=pane.clientHeight;if(W<10||H<10){_resizing=false;return}
     camera.aspect=W/H;camera.updateProjectionMatrix();renderer.setSize(W,H);
+    _resizing=false;
   }
 
   window.update3D=update3DFn;
