@@ -29,6 +29,7 @@
 <script>
 var scene,camera,renderer,controls,camMeshes={};
 var ROOM,BOARDS,OPS,CAM_TYPES;
+var opMeshes=[]; // [{body,head,sprite},...] 운전원 메시 참조
 
 // POV 관련
 var povCam=null; // Three.js PerspectiveCamera for POV
@@ -100,6 +101,7 @@ function initScene(){
     edge.position.copy(mesh.position);scene.add(edge);
   });
 
+  opMeshes=[];
   OPS.forEach(function(o){
     var mat=new THREE.MeshLambertMaterial({color:new THREE.Color(o.col)});
     var body=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,1.7,8),mat);body.position.set(o.x,.85,o.y);scene.add(body);
@@ -110,6 +112,7 @@ function initScene(){
     var tex=new THREE.CanvasTexture(canvas);
     var sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true}));
     sprite.position.set(o.x,2.2,o.y);sprite.scale.set(.5,.25,1);scene.add(sprite);
+    opMeshes.push({body:body,head:head,sprite:sprite});
   });
 
   updateCams();
@@ -244,6 +247,19 @@ function exitPov(){
 
 // 부모에서 호출: 선택된 카메라가 바뀌면 POV도 업데이트
 window.enterPovFromParent=function(camId){enterPov(camId)};
+
+// 운전원 위치 업데이트 (재생 애니메이션)
+window.updateOps=function(animPositions){
+  if(!opMeshes.length||!OPS)return;
+  for(var i=0;i<OPS.length&&i<opMeshes.length;i++){
+    var m=opMeshes[i];
+    var x=animPositions?animPositions[i].x:OPS[i].x;
+    var y=animPositions?animPositions[i].y:OPS[i].y;
+    m.body.position.set(x,.85,y);
+    m.head.position.set(x,1.85,y);
+    m.sprite.position.set(x,2.2,y);
+  }
+};
 
 function updateCams(){
   if(!scene||!CAM_TYPES)return;

@@ -51,6 +51,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .toggle-bar{position:absolute;top:8px;left:8px;display:flex;gap:3px;z-index:5}
 .tog{padding:3px 8px;background:rgba(15,20,32,.9);border:1px solid #2a3550;color:#64748b;border-radius:10px;cursor:pointer;font-size:9px;font-family:inherit;transition:all .15s}
 .tog.on{border-color:#3b82f6;color:#3b82f6}
+.playbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;background:rgba(15,20,32,.92);border:1px solid #2a3550;border-radius:8px;padding:4px 10px;z-index:6}
+.playbar button{background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;padding:2px 4px;font-family:inherit;line-height:1}
+.playbar button:hover{color:#3b82f6}
+.playbar button.active{color:#3b82f6}
+.playbar .ptime{font-size:9px;color:#64748b;min-width:32px;text-align:center}
+.playbar input[type=range]{width:100px;height:3px;-webkit-appearance:none;background:#2a3550;border-radius:2px;outline:none}
+.playbar input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height:8px;background:#3b82f6;border-radius:50%;cursor:pointer}
+.trail-dot{position:absolute;width:3px;height:3px;border-radius:50%;pointer-events:none}
 .cbtn{padding:4px 10px;background:transparent;border:1px solid #2a3550;color:#94a3b8;border-radius:4px;cursor:pointer;font-size:10px;font-family:inherit;transition:all .15s}
 .cbtn:hover{border-color:#3b82f6;color:#3b82f6}
 .cbtn.on{background:#3b82f6;border-color:#3b82f6;color:#fff}
@@ -144,6 +152,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <button class="tog on" id="togHeat" onclick="toggleVis('heat')">히트맵</button>
         <button class="tog on" id="togDead" onclick="toggleVis('dead')">사각지대</button>
         <button class="tog" id="togOps" onclick="toggleVis('ops')">동선</button>
+      </div>
+      <div class="playbar" id="playbar">
+        <button onclick="playToggle()" id="playBtn">▶</button>
+        <input type="range" min="0" max="1000" value="0" id="playSlider" oninput="playSeek(+this.value/1000)">
+        <span class="ptime" id="playTime">0:00</span>
+        <button onclick="playSpeed()" id="playSpd" style="font-size:9px">1x</button>
       </div>
       <div class="hint">더블클릭: 추가 · 드래그: 이동 · 우클릭: 방향</div>
     </div>
@@ -301,6 +315,58 @@ function updateCtrl(){
   document.getElementById('vSpec').textContent='H:'+Math.round(c.fov)+'° V:'+Math.round(c.vfov||c.fov*.56)+'° R:'+c.range.toFixed(1)+'m '+(c.res||4)+'MP';
 }
 function toggleVis(k){vis[k]=!vis[k];document.getElementById('tog'+k.charAt(0).toUpperCase()+k.slice(1)).classList.toggle('on',vis[k]);hcache=null;render()}
+
+// ── 동선 재생 ──
+var playing=false,playT=0,playSpeeds=[1,2,4,0.5],playSpIdx=0,playRaf=null,playLast=0;
+var PLAY_DUR=63; // 63분 훈련 → 63초로 재생
+var opAnim=null; // [{x,y},...] 현재 애니메이션 위치
+
+function getOpPos(op,t){
+  if(!op.path||op.path.length<2)return{x:op.x,y:op.y};
+  var total=op.path.length-1;
+  var ft=t*total; // 0~total 사이의 float index
+  var idx=Math.min(Math.floor(ft),total-1);
+  var frac=ft-idx;
+  var a=op.path[idx],b=op.path[Math.min(idx+1,total)];
+  return{x:a[0]+(b[0]-a[0])*frac, y:a[1]+(b[1]-a[1])*frac};
+}
+
+function playToggle(){
+  playing=!playing;
+  document.getElementById('playBtn').textContent=playing?'⏸':'▶';
+  if(playing){playLast=performance.now();playLoop()}
+  else{if(playRaf)cancelAnimationFrame(playRaf)}
+}
+function playLoop(){
+  if(!playing)return;
+  var now=performance.now(),dt=(now-playLast)/1000;
+  playLast=now;
+  playT+=dt*playSpeeds[playSpIdx]/PLAY_DUR;
+  if(playT>=1){playT=0} // 루프
+  document.getElementById('playSlider').value=Math.round(playT*1000);
+  var mins=Math.floor(playT*PLAY_DUR);
+  var secs=Math.floor((playT*PLAY_DUR-mins)*60);
+  document.getElementById('playTime').textContent=mins+':'+(secs<10?'0':'')+secs;
+  // 운전원 위치 업데이트
+  opAnim=[];
+  for(var i=0;i<OPS.length;i++){opAnim.push(getOpPos(OPS[i],playT))}
+  render();
+  if(window.update3DOps)update3DOps();
+  playRaf=requestAnimationFrame(playLoop);
+}
+function playSeek(t){
+  playT=t;
+  var mins=Math.floor(playT*PLAY_DUR);
+  var secs=Math.floor((playT*PLAY_DUR-mins)*60);
+  document.getElementById('playTime').textContent=mins+':'+(secs<10?'0':'')+secs;
+  opAnim=[];
+  for(var i=0;i<OPS.length;i++){opAnim.push(getOpPos(OPS[i],playT))}
+  render();if(window.update3DOps)update3DOps();
+}
+function playSpeed(){
+  playSpIdx=(playSpIdx+1)%playSpeeds.length;
+  document.getElementById('playSpd').textContent=playSpeeds[playSpIdx]+'x';
+}
 
 var optCamNum=4,optCamType='mix';
 
@@ -495,10 +561,26 @@ function render(){
     else if(b.t==='poly'){ctx.beginPath();for(var j=0;j<b.pts.length;j++){var p=w2s(b.pts[j][0],b.pts[j][1]);j===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)}ctx.closePath();ctx.fill();ctx.stroke()}}
 
   // 운전원
-  for(var i=0;i<OPS.length;i++){var o=OPS[i],p=w2s(o.x,o.y);
-    if(vis.ops&&o.path){ctx.strokeStyle=o.col+'40';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.beginPath();var pp=w2s(o.path[0][0],o.path[0][1]);ctx.moveTo(pp.x,pp.y);for(var j=1;j<o.path.length;j++){pp=w2s(o.path[j][0],o.path[j][1]);ctx.lineTo(pp.x,pp.y)}ctx.stroke();ctx.setLineDash([])}
-    ctx.beginPath();ctx.arc(p.x,p.y,5,0,Math.PI*2);ctx.fillStyle=o.col;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
-    ctx.fillStyle='#fff';ctx.font='bold 8px -apple-system,sans-serif';ctx.textAlign='center';ctx.fillText(o.id,p.x,p.y-8)}
+  for(var i=0;i<OPS.length;i++){var o=OPS[i];
+    var ox=opAnim?opAnim[i].x:o.x, oy=opAnim?opAnim[i].y:o.y;
+    var p=w2s(ox,oy);
+    // 동선 경로 (전체 / 이동 궤적)
+    if(o.path){
+      if(vis.ops||opAnim){ctx.strokeStyle=o.col+'30';ctx.lineWidth=1;ctx.setLineDash([3,3]);ctx.beginPath();var pp=w2s(o.path[0][0],o.path[0][1]);ctx.moveTo(pp.x,pp.y);for(var j=1;j<o.path.length;j++){pp=w2s(o.path[j][0],o.path[j][1]);ctx.lineTo(pp.x,pp.y)}ctx.stroke();ctx.setLineDash([])}
+      // 재생 중: 이동 궤적 하이라이트
+      if(opAnim&&o.path.length>1){
+        var total=o.path.length-1,ft=playT*total,idx=Math.min(Math.floor(ft),total-1);
+        ctx.strokeStyle=o.col+'90';ctx.lineWidth=2;ctx.beginPath();
+        var pp0=w2s(o.path[0][0],o.path[0][1]);ctx.moveTo(pp0.x,pp0.y);
+        for(var j=1;j<=idx;j++){var pp2=w2s(o.path[j][0],o.path[j][1]);ctx.lineTo(pp2.x,pp2.y)}
+        ctx.lineTo(p.x,p.y);ctx.stroke();
+      }
+    }
+    // 운전원 점
+    ctx.beginPath();ctx.arc(p.x,p.y,opAnim?6:5,0,Math.PI*2);ctx.fillStyle=o.col;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();
+    // 재생 중 글로우 효과
+    if(opAnim){ctx.beginPath();ctx.arc(p.x,p.y,10,0,Math.PI*2);ctx.strokeStyle=o.col+'40';ctx.lineWidth=2;ctx.stroke()}
+    ctx.fillStyle='#fff';ctx.font='bold 8px -apple-system,sans-serif';ctx.textAlign='center';ctx.fillText(o.id,p.x,p.y-10)}
 
   // 카메라
   for(var i=0;i<cams.length;i++){var c=cams[i],p=w2s(c.x,c.y),t=CAM_TYPES[c.type],isSel=c.id===selId;
@@ -579,6 +661,9 @@ setTimeout(function(){autoPlace()},100);
   var f3d=document.getElementById('f3d');
   window.update3D=function(){
     try{if(f3d.contentWindow.updateCams)f3d.contentWindow.updateCams()}catch(e){}
+  };
+  window.update3DOps=function(){
+    try{if(f3d.contentWindow.updateOps)f3d.contentWindow.updateOps(window.opAnim)}catch(e){}
   };
   window.resize3D=function(){};
 })();
