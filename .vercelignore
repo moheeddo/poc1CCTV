@@ -1,0 +1,8 @@
+node_modules
+.git
+.claude
+*.png
+*.mp4
+*.heic
+test3d.png
+capture.png
