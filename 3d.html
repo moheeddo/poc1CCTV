@@ -1,13 +1,39 @@
 <!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
-<style>*{margin:0;padding:0}body{overflow:hidden;background:#0a0e17;touch-action:none}canvas{display:block;touch-action:none}</style>
+<style>
+*{margin:0;padding:0}body{overflow:hidden;background:#0a0e17;touch-action:none}canvas{display:block;touch-action:none}
+#povBar{position:fixed;top:0;left:0;right:0;height:32px;background:rgba(15,20,32,.95);border-bottom:1px solid #3b82f6;display:none;align-items:center;padding:0 12px;gap:10px;z-index:10;font-family:-apple-system,sans-serif}
+#povBar span{color:#3b82f6;font-size:11px;font-weight:600}
+#povBar .info{color:#94a3b8;font-size:10px;flex:1}
+#povBar button{background:#1e293b;border:1px solid #3b82f6;color:#3b82f6;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-family:inherit}
+#povBar button:hover{background:#3b82f6;color:#fff}
+#povOverlay{position:fixed;top:32px;left:0;right:0;bottom:0;display:none;z-index:5}
+#povOverlay canvas{width:100%;height:100%}
+.pov-crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;display:none;z-index:11}
+.pov-crosshair div{position:absolute;background:rgba(255,255,255,.3)}
+.pov-crosshair .ch{width:20px;height:1px;top:0;left:-10px}
+.pov-crosshair .cv{width:1px;height:20px;top:-10px;left:0}
+.pov-fov-box{position:fixed;border:1px dashed rgba(59,130,246,.4);pointer-events:none;display:none;z-index:11}
+</style>
 </head><body>
+<div id="povBar">
+  <span id="povLabel">CAM #1 POV</span>
+  <span class="info" id="povInfo">H:104° V:57° Tilt:-30°</span>
+  <button onclick="exitPov()">✕ 닫기 (ESC)</button>
+</div>
+<div class="pov-crosshair" id="povCross"><div class="ch"></div><div class="cv"></div></div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 var scene,camera,renderer,controls,camMeshes={};
 var ROOM,BOARDS,OPS,CAM_TYPES;
+
+// POV 관련
+var povCam=null; // Three.js PerspectiveCamera for POV
+var povActive=false;
+var povCamId=null;
 
 function getParentData(){
   try{
@@ -60,6 +86,10 @@ function initScene(){
    [ROOM.W,ROOM.CEIL/2,ROOM.H/2,[0,-Math.PI/2,0],[ROOM.H,ROOM.CEIL]]
   ].forEach(function(d){var m=new THREE.Mesh(new THREE.PlaneGeometry(d[4][0],d[4][1]),wm);m.position.set(d[0],d[1],d[2]);m.rotation.set(d[3][0],d[3][1],d[3][2]);scene.add(m)});
 
+  // 천장
+  var ceil=new THREE.Mesh(new THREE.PlaneGeometry(ROOM.W,ROOM.H),new THREE.MeshLambertMaterial({color:0x1a2234,side:THREE.DoubleSide,transparent:true,opacity:.3}));
+  ceil.rotation.x=Math.PI/2;ceil.position.set(ROOM.W/2,ROOM.CEIL,ROOM.H/2);scene.add(ceil);
+
   BOARDS.forEach(function(b){
     if(b.t!=='rect')return;
     var h=b.cat==='board'?1.7:.75;
@@ -74,21 +104,146 @@ function initScene(){
     var mat=new THREE.MeshLambertMaterial({color:new THREE.Color(o.col)});
     var body=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,1.7,8),mat);body.position.set(o.x,.85,o.y);scene.add(body);
     var head=new THREE.Mesh(new THREE.SphereGeometry(.15,8,8),mat);head.position.set(o.x,1.85,o.y);scene.add(head);
+    // 이름표
+    var canvas=document.createElement('canvas');canvas.width=64;canvas.height=32;
+    var ctx=canvas.getContext('2d');ctx.fillStyle=o.col;ctx.font='bold 18px sans-serif';ctx.textAlign='center';ctx.fillText(o.id,32,22);
+    var tex=new THREE.CanvasTexture(canvas);
+    var sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true}));
+    sprite.position.set(o.x,2.2,o.y);sprite.scale.set(.5,.25,1);scene.add(sprite);
   });
 
   updateCams();
+
+  // 클릭으로 카메라 선택 + POV
+  renderer.domElement.addEventListener('dblclick',function(e){
+    if(povActive)return;
+    var rect=renderer.domElement.getBoundingClientRect();
+    var mouse=new THREE.Vector2(
+      ((e.clientX-rect.left)/rect.width)*2-1,
+      -((e.clientY-rect.top)/rect.height)*2+1
+    );
+    var raycaster=new THREE.Raycaster();
+    raycaster.setFromCamera(mouse,camera);
+    // 카메라 바디 메시만 대상으로 체크
+    var targets=[];
+    var cams=[];try{cams=window.parent.cams||[]}catch(ex){}
+    for(var i=0;i<cams.length;i++){
+      if(camMeshes[cams[i].id]&&camMeshes[cams[i].id][0]){
+        targets.push({mesh:camMeshes[cams[i].id][0],camId:cams[i].id});
+      }
+    }
+    var meshList=targets.map(function(t){return t.mesh});
+    var hits=raycaster.intersectObjects(meshList);
+    if(hits.length>0){
+      var hit=hits[0].object;
+      for(var j=0;j<targets.length;j++){
+        if(targets[j].mesh===hit){
+          enterPov(targets[j].camId);
+          break;
+        }
+      }
+    }
+  });
 
   window.addEventListener('resize',function(){
     camera.aspect=window.innerWidth/window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth,window.innerHeight);
+    if(povCam){
+      povCam.aspect=window.innerWidth/window.innerHeight;
+      povCam.updateProjectionMatrix();
+    }
+  });
+
+  window.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&povActive)exitPov();
   });
 
   renderer.setAnimationLoop(function(){
-    controls.update();
-    renderer.render(scene,camera);
+    if(povActive&&povCam){
+      updatePovCam();
+      renderer.render(scene,povCam);
+    }else{
+      controls.update();
+      renderer.render(scene,camera);
+    }
   });
 }
+
+// ── POV 진입/퇴장 ──
+function enterPov(camId){
+  var cams=[];try{cams=window.parent.cams||[]}catch(e){}
+  var c=null;
+  for(var i=0;i<cams.length;i++)if(cams[i].id===camId){c=cams[i];break}
+  if(!c)return;
+
+  povCamId=camId;
+  povActive=true;
+  controls.enabled=false;
+
+  // POV 카메라 생성 (수직 FOV 사용)
+  var vfov=c.vfov||c.fov*0.56;
+  povCam=new THREE.PerspectiveCamera(vfov,window.innerWidth/window.innerHeight,.05,80);
+  updatePovCam();
+
+  // UI
+  document.getElementById('povBar').style.display='flex';
+  document.getElementById('povLabel').textContent='CAM #'+c.id+' POV';
+  document.getElementById('povInfo').textContent=
+    'H:'+Math.round(c.fov)+'° V:'+Math.round(vfov)+'° Tilt:'+Math.round(c.tilt||0)+'° '+
+    (c.model||'fixed')+' '+(c.res||4)+'MP';
+  document.getElementById('povCross').style.display='block';
+
+  // 부모에게 선택 알림
+  try{window.parent.selCam(camId)}catch(e){}
+}
+
+function updatePovCam(){
+  if(!povCam||!povCamId)return;
+  var cams=[];try{cams=window.parent.cams||[]}catch(e){}
+  var c=null;
+  for(var i=0;i<cams.length;i++)if(cams[i].id===povCamId){c=cams[i];break}
+  if(!c){exitPov();return}
+
+  var vfov=c.vfov||c.fov*0.56;
+  povCam.fov=vfov;
+  povCam.aspect=window.innerWidth/window.innerHeight;
+  povCam.updateProjectionMatrix();
+
+  // 카메라 위치
+  povCam.position.set(c.x,c.height,c.y);
+
+  // 카메라 방향 계산 (angle + tilt)
+  var angleRad=c.angle*Math.PI/180;
+  var tiltRad=(c.tilt||0)*Math.PI/180;
+
+  // 수평 방향 벡터 (2D에서 angle: 오른쪽=0, 아래=90)
+  // Three.js에서 x=오른쪽, z=아래(+), y=위
+  var dirX=Math.cos(angleRad);
+  var dirZ=Math.sin(angleRad);
+
+  // 틸트 적용: 수평 방향을 기준으로 상하 회전
+  var horizDist=Math.cos(tiltRad); // tilt가 음수면 아래를 봄
+  var vertDist=Math.sin(tiltRad);
+
+  var lookX=c.x+dirX*horizDist*5;
+  var lookY=c.height+vertDist*5;
+  var lookZ=c.y+dirZ*horizDist*5;
+
+  povCam.lookAt(lookX,lookY,lookZ);
+}
+
+function exitPov(){
+  povActive=false;
+  povCamId=null;
+  povCam=null;
+  controls.enabled=true;
+  document.getElementById('povBar').style.display='none';
+  document.getElementById('povCross').style.display='none';
+}
+
+// 부모에서 호출: 선택된 카메라가 바뀌면 POV도 업데이트
+window.enterPovFromParent=function(camId){enterPov(camId)};
 
 function updateCams(){
   if(!scene||!CAM_TYPES)return;
@@ -120,6 +275,12 @@ function updateCams(){
     // 수평 방향 적용 (Y축 회전)
     coneGroup.rotation.y=-c.angle*Math.PI/180+Math.PI/2;
     scene.add(coneGroup);objs.push(coneGroup);
+    // 카메라 ID 라벨
+    var lc=document.createElement('canvas');lc.width=48;lc.height=24;
+    var lx=lc.getContext('2d');lx.fillStyle='#fff';lx.font='bold 14px sans-serif';lx.textAlign='center';lx.fillText('#'+c.id,24,16);
+    var lt=new THREE.CanvasTexture(lc);
+    var ls=new THREE.Sprite(new THREE.SpriteMaterial({map:lt,transparent:true}));
+    ls.position.set(c.x,c.height+.3,c.y);ls.scale.set(.35,.18,1);scene.add(ls);objs.push(ls);
     var wire=new THREE.Mesh(new THREE.CylinderGeometry(.02,.02,ROOM.CEIL-c.height),new THREE.MeshBasicMaterial({color:0x475569}));
     wire.position.set(c.x,(c.height+ROOM.CEIL)/2,c.y);scene.add(wire);objs.push(wire);
     camMeshes[c.id]=objs;
