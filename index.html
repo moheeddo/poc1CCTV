@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>CCTV 배치 시뮬레이터</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -54,11 +54,34 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .cbtn{padding:4px 10px;background:transparent;border:1px solid #2a3550;color:#94a3b8;border-radius:4px;cursor:pointer;font-size:10px;font-family:inherit;transition:all .15s}
 .cbtn:hover{border-color:#3b82f6;color:#3b82f6}
 .cbtn.on{background:#3b82f6;border-color:#3b82f6;color:#fff}
+
+/* 모바일 사이드바 토글 */
+.side-toggle{display:none;position:fixed;top:8px;left:8px;z-index:100;width:36px;height:36px;background:#161d2e;border:1px solid #2a3550;border-radius:8px;color:#e2e8f0;font-size:18px;cursor:pointer;align-items:center;justify-content:center;line-height:1}
+.side-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:49}
+
+@media(max-width:768px){
+  body{flex-direction:column}
+  .side{display:none;position:fixed;top:0;left:0;width:280px;height:100vh;z-index:50;overflow-y:auto}
+  .side.open{display:flex}
+  .side-toggle{display:flex}
+  .side-overlay.open{display:block}
+  .main{flex:1;min-height:0}
+  .view-area{flex-direction:column}
+  .pane-2d{min-height:50vh}
+  .pane-3d{border-left:none;border-top:1px solid #2a3550;min-height:50vh}
+  .view-tabs{padding-left:44px}
+  .toggle-bar{top:4px;left:4px}
+  .tog{padding:2px 6px;font-size:8px}
+  .hint{display:none}
+  .logo{padding:10px 14px;padding-right:40px}
+}
 </style>
 </head>
 <body>
 
-<div class="side">
+<button class="side-toggle" id="sideToggle" onclick="toggleSide()">☰</button>
+<div class="side-overlay" id="sideOverlay" onclick="toggleSide()"></div>
+<div class="side" id="sidePanel">
   <div class="logo">📹 CCTV 배치 시뮬레이터</div>
   <div class="sec">
     <div class="sec-title">커버리지</div>
@@ -81,10 +104,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
   <div class="sec" id="ctrlSec" style="display:none">
     <div class="sec-title">카메라 설정</div>
+    <div class="ctrl-row"><label>모델</label><select id="rModel" onchange="setModel(this.value)" style="flex:1;background:#1a2236;color:#e2e8f0;border:1px solid #2a3550;border-radius:3px;font-size:9px;padding:2px 4px;font-family:inherit"></select></div>
     <div class="ctrl-row"><label>방향</label><input type="range" min="0" max="359" id="rAngle" oninput="setProp('angle',+this.value)"><span class="val" id="vAngle">0°</span></div>
-    <div class="ctrl-row"><label>화각</label><input type="range" min="30" max="220" id="rFov" oninput="setProp('fov',+this.value)"><span class="val" id="vFov">90°</span></div>
+    <div class="ctrl-row"><label>틸트</label><input type="range" min="-80" max="0" id="rTilt" oninput="setProp('tilt',+this.value)"><span class="val" id="vTilt">-30°</span></div>
+    <div class="ctrl-row"><label>줌</label><input type="range" min="0" max="100" id="rZoom" oninput="setZoom(+this.value/100)"><span class="val" id="vZoom">Wide</span></div>
     <div class="ctrl-row"><label>높이</label><input type="range" min="20" max="40" id="rHeight" oninput="setProp('height',this.value/10)"><span class="val" id="vHeight">3.0m</span></div>
-    <div class="ctrl-row"><label>거리</label><input type="range" min="20" max="130" id="rRange" oninput="setProp('range',this.value/10)"><span class="val" id="vRange">8.0m</span></div>
+    <div class="ctrl-row" style="padding:1px 0;font-size:8px;color:#475569"><label></label><span id="vSpec" style="flex:1;text-align:center">H:103.9° V:57.1° R:12.5m 8MP</span></div>
   </div>
   <div class="sec">
     <div class="sec-title">자동 배치</div>
@@ -163,6 +188,31 @@ var cams=[],nextId=1,selId=null,vis={heat:true,dead:true,ops:false},drag=null,hc
 var curView='split';
 var CAM_TYPES={fisheye:{lbl:'어안',col:'#06b6d4'},fixed:{lbl:'고정',col:'#3b82f6'},ptz:{lbl:'PTZ',col:'#8b5cf6'}};
 
+// 카메라 스펙 프리셋
+var CAM_SPECS={
+  'INI-BN804TI':{label:'INI-BN804TI (8MP Bullet)',sensor:'1/1.8"',resW:3840,resH:2160,res:8,
+    hfov:[103.9,26],vfov:[57.1,14.3],focal:[4.1,16.4],irRange:50,zoomRatio:4},
+  'generic-fixed':{label:'일반 고정 (4MP)',sensor:'1/3"',resW:2560,resH:1440,res:4,
+    hfov:[90,90],vfov:[50,50],focal:[3.6,3.6],irRange:30,zoomRatio:1},
+  'generic-ptz':{label:'일반 PTZ (4MP)',sensor:'1/3"',resW:2560,resH:1440,res:4,
+    hfov:[60,3],vfov:[34,1.7],focal:[4.3,129],irRange:150,zoomRatio:30},
+  'fisheye-12MP':{label:'어안 12MP',sensor:'1/1.7"',resW:4000,resH:3000,res:5,
+    hfov:[190,190],vfov:[190,190],focal:[1.05,1.05],irRange:15,zoomRatio:1}
+};
+
+function applySpec(c){
+  var spec=CAM_SPECS[c.model||'generic-fixed'];if(!spec)return;
+  var z=c.zoom||0;
+  c.fov=spec.hfov[0]+(spec.hfov[1]-spec.hfov[0])*z;
+  c.vfov=spec.vfov[0]+(spec.vfov[1]-spec.vfov[0])*z;
+  c.res=spec.res;
+  c.range=Math.max(5,spec.irRange*(0.25+0.75*z));
+}
+function setModel(model){var c=getCam(selId);if(!c)return;c.model=model;c.zoom=0;
+  if(model==='fisheye-12MP')c.type='fisheye';else if(model==='generic-ptz')c.type='ptz';else c.type='fixed';
+  applySpec(c);hcache=null;updateCtrl();updateUI();render();if(window.update3D)update3D()}
+function setZoom(z){var c=getCam(selId);if(!c)return;c.zoom=z;applySpec(c);hcache=null;updateCtrl();updateUI();render();if(window.update3D)update3D()}
+
 function walkable(x,y){
   for(var i=0;i<BOARDS.length;i++){
     var b=BOARDS[i];
@@ -177,12 +227,24 @@ function covAt(px,py,arr){
     var c=arr[i],dx=px-c.x,dy=py-c.y,gd=Math.sqrt(dx*dx+dy*dy),td=Math.sqrt(gd*gd+c.height*c.height);
     var eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*0.65):c.range;
     if(gd>eff)continue;
+    // 수평 각도 체크
     var ad=Math.atan2(dy,dx)*180/Math.PI-c.angle;while(ad>180)ad-=360;while(ad<-180)ad+=360;
     if(Math.abs(ad)>c.fov/2)continue;
-    var dd=Math.atan2(c.height,gd)*180/Math.PI;
+    // 수직 각도 체크 (틸트 반영)
+    var vertAngle=-Math.atan2(c.height,gd)*180/Math.PI; // 바닥 방향 = 음수
+    var tilt=c.tilt||0;
+    var vfov=c.vfov||c.fov*0.56;
+    if(c.type!=='fisheye'){
+      var vertDiff=vertAngle-tilt;
+      if(Math.abs(vertDiff)>vfov/2)continue;
+    }
+    var dd=Math.abs(vertAngle);
     var dF=(dd>=18&&dd<=57)?1:(dd>57?Math.max(.2,1-(dd-57)/50):Math.max(.05,dd/18));
     var fF=Math.cos(ad*Math.PI/180*.75);
-    var ppf=(c.res*1200)/(td*td*.18+1)*dF*fF;if(ppf>maxPPF)maxPPF=ppf;
+    // 수직 오프액시스 감쇠
+    var vDiff=c.type!=='fisheye'?vertAngle-tilt:0;
+    var vF=Math.cos((vDiff)*Math.PI/180*.75);
+    var ppf=(c.res*1200)/(td*td*.18+1)*dF*fF*vF;if(ppf>maxPPF)maxPPF=ppf;
   }
   return maxPPF;
 }
@@ -214,10 +276,29 @@ function updateUI(){
 }
 function selCam(id){selId=id;hcache=null;updateUI();render();if(window.update3D)update3D()}
 function delCam(id){cams=cams.filter(function(c){return c.id!==id});if(selId===id)selId=cams.length>0?cams[0].id:null;hcache=null;updateUI();render();if(window.update3D)update3D()}
-function addCam(x,y,type){x=x||ROOM.W/2;y=y||ROOM.H/2;type=type||'fixed';var fov=type==='fisheye'?190:type==='ptz'?60:90;var range=type==='fisheye'?6:type==='ptz'?14:9;cams.push({id:nextId++,type:type,x:x,y:y,angle:180,height:3.8,fov:fov,range:range,res:4});selId=cams[cams.length-1].id;hcache=null;updateUI();render();if(window.update3D)update3D()}
+function addCam(x,y,type){x=x||ROOM.W/2;y=y||ROOM.H/2;type=type||'fixed';
+  var model=type==='fisheye'?'fisheye-12MP':type==='ptz'?'generic-ptz':'INI-BN804TI';
+  var spec=CAM_SPECS[model];
+  var cam={id:nextId++,type:type,x:x,y:y,angle:180,height:3.8,
+    fov:spec.hfov[0],vfov:spec.vfov[0],range:spec.irRange*0.25,res:spec.res,
+    tilt:-30,zoom:0,model:model};
+  cams.push(cam);selId=cam.id;hcache=null;updateUI();render();if(window.update3D)update3D()}
 function getCam(id){for(var i=0;i<cams.length;i++)if(cams[i].id===id)return cams[i];return null}
 function setProp(p,v){var c=getCam(selId);if(!c)return;c[p]=v;hcache=null;updateCtrl();updateUI();render();if(window.update3D)update3D()}
-function updateCtrl(){var sec=document.getElementById('ctrlSec'),c=getCam(selId);if(!c){sec.style.display='none';return}sec.style.display='';document.getElementById('rAngle').value=Math.round(c.angle);document.getElementById('vAngle').textContent=Math.round(c.angle)+'°';document.getElementById('rFov').value=c.fov;document.getElementById('vFov').textContent=c.fov+'°';document.getElementById('rHeight').value=Math.round(c.height*10);document.getElementById('vHeight').textContent=c.height.toFixed(1)+'m';document.getElementById('rRange').value=Math.round(c.range*10);document.getElementById('vRange').textContent=c.range.toFixed(1)+'m'}
+function updateCtrl(){
+  var sec=document.getElementById('ctrlSec'),c=getCam(selId);if(!c){sec.style.display='none';return}sec.style.display='';
+  document.getElementById('rAngle').value=Math.round(c.angle);document.getElementById('vAngle').textContent=Math.round(c.angle)+'°';
+  document.getElementById('rTilt').value=Math.round(c.tilt||0);document.getElementById('vTilt').textContent=Math.round(c.tilt||0)+'°';
+  var zv=Math.round((c.zoom||0)*100);document.getElementById('rZoom').value=zv;
+  document.getElementById('vZoom').textContent=zv<5?'Wide':zv>95?'Tele':zv+'%';
+  document.getElementById('rHeight').value=Math.round(c.height*10);document.getElementById('vHeight').textContent=c.height.toFixed(1)+'m';
+  // 모델 셀렉트
+  var ms=document.getElementById('rModel');
+  if(ms.options.length===0){for(var k in CAM_SPECS){var o=document.createElement('option');o.value=k;o.textContent=CAM_SPECS[k].label;ms.appendChild(o)}}
+  ms.value=c.model||'generic-fixed';
+  // 스펙 정보 표시
+  document.getElementById('vSpec').textContent='H:'+Math.round(c.fov)+'° V:'+Math.round(c.vfov||c.fov*.56)+'° R:'+c.range.toFixed(1)+'m '+(c.res||4)+'MP';
+}
 function toggleVis(k){vis[k]=!vis[k];document.getElementById('tog'+k.charAt(0).toUpperCase()+k.slice(1)).classList.toggle('on',vis[k]);hcache=null;render()}
 
 var optCamNum=4,optCamType='mix';
@@ -263,10 +344,12 @@ function makeCam(tpl,id,typeMode){
   var tp=tpl.tp||'fixed';
   if(typeMode==='fisheye')tp='fisheye';
   else if(typeMode==='fixed')tp='fixed';
-  var fov=tp==='fisheye'?190:tp==='ptz'?60:90;
-  var range=tp==='fisheye'?6:tp==='ptz'?14:9;
+  var model=tp==='fisheye'?'fisheye-12MP':tp==='ptz'?'generic-ptz':'INI-BN804TI';
+  var spec=CAM_SPECS[model];
   var angle=angleToward(tpl.x,tpl.y,tpl.aim[0],tpl.aim[1]);
-  return{id:id,type:tp,x:tpl.x,y:tpl.y,angle:angle,fov:fov,range:range,height:3.8,res:tp==='fisheye'?5:4};
+  return{id:id,type:tp,x:tpl.x,y:tpl.y,angle:angle,
+    fov:spec.hfov[0],vfov:spec.vfov[0],range:spec.irRange*0.25,
+    height:3.8,res:spec.res,tilt:-30,zoom:0,model:model};
 }
 
 function optimizePlacement(arr){
@@ -275,20 +358,22 @@ function optimizePlacement(arr){
     var step=iter<20?.3:iter<35?.12:.04;
     for(var i=0;i<arr.length;i++){
       var c=arr[i],baseScore=evaluate(arr).total;
-      ['x','y','angle','height'].forEach(function(prop){
-        var d=prop==='angle'?15:prop==='height'?.12:step;
-        var orig=c[prop];
+      ['x','y','angle','height','tilt'].forEach(function(prop){
+        var d=prop==='angle'?15:prop==='height'?.12:prop==='tilt'?5:step;
+        var orig=c[prop]||(prop==='tilt'?-30:0);
         // +d 시도
         c[prop]=orig+d;
         if(prop==='x')c[prop]=Math.max(0.1,Math.min(ROOM.W-0.1,c[prop]));
         if(prop==='y')c[prop]=Math.max(0.1,Math.min(ROOM.H-0.1,c[prop]));
         if(prop==='height')c[prop]=Math.max(2.5,Math.min(3.9,c[prop]));
+        if(prop==='tilt')c[prop]=Math.max(-80,Math.min(-5,c[prop]));
         var s1=evaluate(arr).total;
         // -d 시도
         c[prop]=orig-d;
         if(prop==='x')c[prop]=Math.max(0.1,Math.min(ROOM.W-0.1,c[prop]));
         if(prop==='y')c[prop]=Math.max(0.1,Math.min(ROOM.H-0.1,c[prop]));
         if(prop==='height')c[prop]=Math.max(2.5,Math.min(3.9,c[prop]));
+        if(prop==='tilt')c[prop]=Math.max(-80,Math.min(-5,c[prop]));
         var s2=evaluate(arr).total;
         // 최선 선택
         if(s1>=s2&&s1>baseScore){c[prop]=orig+d}
@@ -297,6 +382,7 @@ function optimizePlacement(arr){
         if(prop==='x')c[prop]=Math.max(0.1,Math.min(ROOM.W-0.1,c[prop]));
         if(prop==='y')c[prop]=Math.max(0.1,Math.min(ROOM.H-0.1,c[prop]));
         if(prop==='height')c[prop]=Math.max(2.5,Math.min(3.9,c[prop]));
+        if(prop==='tilt')c[prop]=Math.max(-80,Math.min(-5,c[prop]));
       });
     }
   }
@@ -327,11 +413,13 @@ function autoPlace(){
       for(var i=0;i<n;i++){
         var sp=spots[Math.floor(Math.random()*spots.length)];
         var tp=tm==='fisheye'?'fisheye':tm==='fixed'?'fixed':(['fisheye','fixed','ptz'])[Math.floor(Math.random()*3)];
-        var fov=tp==='fisheye'?190:tp==='ptz'?60:90;
-        var range=tp==='fisheye'?6:tp==='ptz'?14:9;
+        var mdl=tp==='fisheye'?'fisheye-12MP':tp==='ptz'?'generic-ptz':'INI-BN804TI';
+        var sp2=CAM_SPECS[mdl];
         var cx=sp.x+(.5-Math.random())*.4,cy=sp.y+(.5-Math.random())*.4;
         cx=Math.max(0.1,Math.min(ROOM.W-0.1,cx));cy=Math.max(0.1,Math.min(ROOM.H-0.1,cy));
-        arr.push({id:900+i,type:tp,x:cx,y:cy,angle:angleToward(cx,cy,4.5,4),fov:fov,range:range,height:3.8,res:tp==='fisheye'?5:4});
+        arr.push({id:900+i,type:tp,x:cx,y:cy,angle:angleToward(cx,cy,4.5,4),
+          fov:sp2.hfov[0],vfov:sp2.vfov[0],range:sp2.irRange*0.25,height:3.8,
+          res:sp2.res,tilt:-30,zoom:0,model:mdl});
       }
       arr=optimizePlacement(arr);
       var s=evaluate(arr).total;
@@ -339,7 +427,7 @@ function autoPlace(){
     }
 
     cams=[];
-    best.forEach(function(c){cams.push({id:nextId++,type:c.type,x:c.x,y:c.y,angle:c.angle,fov:c.fov,range:c.range,height:c.height,res:c.res})});
+    best.forEach(function(c){cams.push({id:nextId++,type:c.type,x:c.x,y:c.y,angle:c.angle,fov:c.fov,vfov:c.vfov||c.fov*.56,range:c.range,height:c.height,res:c.res,tilt:c.tilt||-30,zoom:c.zoom||0,model:c.model||'INI-BN804TI'})});
 
     selId=cams[0].id;hcache=null;updateUI();render();if(window.update3D)update3D();
     statusEl.textContent='완료: '+Math.round(bestScore*100)+'% ('+cams.length+'대)';
@@ -355,8 +443,8 @@ function setView(v){
   document.getElementById('tab2d').classList.toggle('on',v==='2d');
   document.getElementById('tab3d').classList.toggle('on',v==='3d');
   var p2=document.getElementById('pane2d'),p3=document.getElementById('pane3d');
-  if(v==='2d'){p2.style.display='block';p2.style.flex='1';p3.style.display='none'}
-  else if(v==='3d'){p2.style.display='none';p3.style.display='block';p3.style.flex='1'}
+  if(v==='2d'){p2.style.display='block';p2.style.flex='1';p3.style.display='none';p3.style.flex=''}
+  else if(v==='3d'){p2.style.display='none';p2.style.flex='';p3.style.display='block';p3.style.flex='1'}
   else{p2.style.display='block';p2.style.flex='1';p3.style.display='block';p3.style.flex='1'}
   // 레이아웃 안정화 후 resize (2번 — flex 재계산 대기)
   setTimeout(function(){resize();if(window.resize3D)resize3D()},50);
@@ -413,8 +501,18 @@ function render(){
 
   // 카메라
   for(var i=0;i<cams.length;i++){var c=cams[i],p=w2s(c.x,c.y),t=CAM_TYPES[c.type],isSel=c.id===selId;
-    var aR=c.angle*Math.PI/180,fR=c.fov*Math.PI/180,eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*.65):c.range,rPx=eff*SCALE;
-    ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.arc(p.x,p.y,rPx,aR-fR/2,aR+fR/2);ctx.closePath();ctx.fillStyle=t.col+(isSel?'25':'12');ctx.fill();ctx.strokeStyle=t.col+(isSel?'70':'35');ctx.lineWidth=isSel?1.5:.7;ctx.stroke();
+    var aR=c.angle*Math.PI/180,fR=c.fov*Math.PI/180,eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*.65):c.range;
+    // 틸트 기반 근거리/원거리 계산
+    var tiltAbs=Math.abs(c.tilt||0),vfovH=(c.vfov||c.fov*.56)/2;
+    var downNear=tiltAbs+vfovH,downFar=tiltAbs-vfovH;
+    var nearDist=(downNear>0&&downNear<90)?c.height/Math.tan(downNear*Math.PI/180):0.1;
+    var farDist=(downFar>1)?Math.min(c.height/Math.tan(downFar*Math.PI/180),eff):eff;
+    nearDist=Math.max(0.1,Math.min(nearDist,eff));farDist=Math.min(farDist,eff);
+    if(c.type==='fisheye'){nearDist=0.1;farDist=eff} // 어안은 기존대로
+    var nearPx=nearDist*SCALE,farPx=farDist*SCALE;
+    // 도넛 섹터(annular sector) 그리기
+    ctx.beginPath();ctx.arc(p.x,p.y,farPx,aR-fR/2,aR+fR/2,false);ctx.arc(p.x,p.y,nearPx,aR+fR/2,aR-fR/2,true);ctx.closePath();
+    ctx.fillStyle=t.col+(isSel?'25':'12');ctx.fill();ctx.strokeStyle=t.col+(isSel?'70':'35');ctx.lineWidth=isSel?1.5:.7;ctx.stroke();
     // 카메라→운전원 커버리지 라인
     for(var j=0;j<OPS.length;j++){var o=OPS[j],ppf=covAt(o.x,o.y,[c]);if(ppf>=18){var op=w2s(o.x,o.y);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(op.x,op.y);ctx.strokeStyle=ppf>=55?'rgba(16,185,129,0.3)':'rgba(59,130,246,0.2)';ctx.lineWidth=ppf>=55?1.5:1;ctx.setLineDash([3,4]);ctx.stroke();ctx.setLineDash([])}}
     ctx.beginPath();ctx.arc(p.x,p.y,isSel?4:3,0,Math.PI*2);ctx.fillStyle=t.col;ctx.fill();if(isSel){ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke()}
@@ -436,11 +534,35 @@ function setupEvents(){
   cv.addEventListener('mouseup',function(){if(drag){drag=null;hcache=null;updateUI();render();if(window.update3D)update3D()}});
   cv.addEventListener('dblclick',function(e){var w=s2w(e.offsetX,e.offsetY);if(w.x>=0.1&&w.x<=ROOM.W-0.1&&w.y>=0.1&&w.y<=ROOM.H-0.1)addCam(w.x,w.y,'fixed')});
   cv.addEventListener('contextmenu',function(e){e.preventDefault()});
+  // 터치 이벤트 (모바일)
+  var lastTap=0;
+  cv.addEventListener('touchstart',function(e){
+    e.preventDefault();var t=e.touches[0],rect=cv.getBoundingClientRect();
+    var ox=t.clientX-rect.left,oy=t.clientY-rect.top,w=s2w(ox,oy);
+    var now=Date.now();
+    if(now-lastTap<300){if(w.x>=0.1&&w.x<=ROOM.W-0.1&&w.y>=0.1&&w.y<=ROOM.H-0.1)addCam(w.x,w.y,'fixed');lastTap=0;return}
+    lastTap=now;
+    for(var i=cams.length-1;i>=0;i--)if(Math.hypot(cams[i].x-w.x,cams[i].y-w.y)<.8){drag={cam:cams[i],mode:'move',ox:cams[i].x-w.x,oy:cams[i].y-w.y};selId=cams[i].id;updateUI();return}
+  },{passive:false});
+  cv.addEventListener('touchmove',function(e){
+    e.preventDefault();if(!drag)return;var t=e.touches[0],rect=cv.getBoundingClientRect();
+    var ox=t.clientX-rect.left,oy=t.clientY-rect.top,w=s2w(ox,oy);
+    drag.cam.x=Math.max(0.1,Math.min(ROOM.W-0.1,w.x+drag.ox));drag.cam.y=Math.max(0.1,Math.min(ROOM.H-0.1,w.y+drag.oy));
+    hcache=null;render();
+  },{passive:false});
+  cv.addEventListener('touchend',function(e){if(drag){drag=null;hcache=null;updateUI();render();if(window.update3D)update3D()}});
   window.addEventListener('resize',function(){resize()});
 }
 
+function toggleSide(){
+  var p=document.getElementById('sidePanel'),o=document.getElementById('sideOverlay');
+  var open=p.classList.toggle('open');o.classList.toggle('open',open);
+}
+
 cv=document.getElementById('cv');ctx=cv.getContext('2d');
-setupEvents();setView('split');
+setupEvents();
+var isMobile=window.innerWidth<=768;
+setView(isMobile?'2d':'split');
 setTimeout(function(){autoPlace()},100);
 </script>
 

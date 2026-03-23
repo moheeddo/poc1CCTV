@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
-<style>*{margin:0;padding:0}body{overflow:hidden;background:#0a0e17}canvas{display:block}</style>
+<style>*{margin:0;padding:0}body{overflow:hidden;background:#0a0e17;touch-action:none}canvas{display:block;touch-action:none}</style>
 </head><body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -103,13 +103,23 @@ function updateCams(){
     var body=new THREE.Mesh(new THREE.BoxGeometry(.25,.2,.3),new THREE.MeshLambertMaterial({color:col}));
     body.position.set(c.x,c.height,c.y);scene.add(body);objs.push(body);
     var eff=c.type==='fisheye'?Math.max(c.height*1.3,c.range*.65):c.range;
+    var tilt=c.tilt||0;
     var coneGeo=new THREE.ConeGeometry(Math.tan(c.fov*Math.PI/360)*eff,eff,12,1,true);
-    var cone=new THREE.Mesh(coneGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.08,side:THREE.DoubleSide}));
-    cone.position.set(c.x,c.height,c.y);
-    cone.rotation.set(0,0,Math.PI/2);cone.rotation.order='YXZ';
-    cone.rotateOnWorldAxis(new THREE.Vector3(0,1,0),-c.angle*Math.PI/180+Math.PI/2);
-    cone.translateY(eff/2);
-    scene.add(cone);objs.push(cone);
+    var coneMat=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.08,side:THREE.DoubleSide});
+    var cone=new THREE.Mesh(coneGeo,coneMat);
+    // 그룹으로 회전 합성: 틸트(X축) + 수평방향(Y축)
+    var coneGroup=new THREE.Group();
+    coneGroup.position.set(c.x,c.height,c.y);
+    // 콘 기본: 꼭지점 원점, -Y 방향으로 펼침 → +Z(앞) 방향으로 회전
+    cone.rotation.set(Math.PI/2,0,0);
+    cone.position.set(0,0,eff/2);
+    coneGroup.add(cone);
+    // 틸트 적용 (음수=아래, X축 회전)
+    coneGroup.rotation.order='YXZ';
+    coneGroup.rotation.x=tilt*Math.PI/180;
+    // 수평 방향 적용 (Y축 회전)
+    coneGroup.rotation.y=-c.angle*Math.PI/180+Math.PI/2;
+    scene.add(coneGroup);objs.push(coneGroup);
     var wire=new THREE.Mesh(new THREE.CylinderGeometry(.02,.02,ROOM.CEIL-c.height),new THREE.MeshBasicMaterial({color:0x475569}));
     wire.position.set(c.x,(c.height+ROOM.CEIL)/2,c.y);scene.add(wire);objs.push(wire);
     camMeshes[c.id]=objs;
